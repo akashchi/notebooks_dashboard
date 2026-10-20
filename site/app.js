@@ -83,7 +83,8 @@
       null,
       headers.map((header) => (typeof header === "string" ? el("th", { scope: "col" }, header) : el("th", Object.assign({ scope: "col" }, header.attrs), header.text)))
     );
-    return el("div", { class: "table-wrap" + (options && options.tall ? " tall" : "") }, el("table", null, el("thead", null, head), el("tbody", null, rows)));
+    const attrs = options && options.class ? { class: options.class } : null;
+    return el("div", { class: "table-wrap" + (options && options.tall ? " tall" : "") }, el("table", attrs, el("thead", null, head), el("tbody", null, rows)));
   }
 
   // ---------------------------------------------------------------- formatting
@@ -145,20 +146,34 @@
     return CODE[status] || "-";
   }
 
-  function configLabel(configId) {
+  function configParts(configId) {
     const config = configsById[configId] || {};
     const match = /^(\w+)-(.+)-py([\d.]+)$/.exec(configId || "");
     const os = config.os || (match && match[2]) || configId || "?";
     const family = config.os_family || (os.startsWith("ubuntu") ? "linux" : os.startsWith("windows") ? "windows" : os.startsWith("macos") ? "macos" : "");
-    const osLabel = { linux: "Linux", windows: "Windows", macos: "macOS" }[family] || os;
-    const python = config.python || (match && match[3]);
-    const device = config.device || (match && match[1]);
-    const deviceLabel = { igpu: "iGPU", dgpu: "dGPU" }[device] || (device || "").toUpperCase();
-    return `${osLabel}${python ? " py" + python : ""}${device && device !== "cpu" ? " " + deviceLabel : ""}`;
+    const device = config.device || (match && match[1]) || "";
+    return {
+      os: { linux: "Linux", windows: "Windows", macos: "macOS" }[family] || os,
+      python: config.python || (match && match[3]) || "",
+      device: { igpu: "iGPU", dgpu: "dGPU" }[device] || device.toUpperCase(),
+    };
   }
 
-  function configCell(configId) {
-    return el("span", { title: configId || "" }, configLabel(configId));
+  function configLabel(configId) {
+    const parts = configParts(configId);
+    return `${parts.os}${parts.python ? " py" + parts.python : ""}${parts.device && parts.device !== "CPU" ? " " + parts.device : ""}`;
+  }
+
+  const CONFIG_HEADERS = ["OS", "Python", "Device"];
+
+  function configCells(configId) {
+    const parts = configParts(configId);
+    const title = configId || "";
+    return [
+      el("td", { class: "nowrap", title }, parts.os),
+      el("td", { class: "nowrap", title }, parts.python || "—"),
+      el("td", { class: "nowrap", title }, parts.device || "—"),
+    ];
   }
 
   // ---------------------------------------------------------------- status visuals
@@ -233,13 +248,12 @@
   }
 
   const KPIS = [
-    ["pass_rate", "Pass rate", "rate", 1, "Passed ÷ executed notebook × configuration results (executed = passed + failed + timeout + error)."],
-    ["notebook_pass_rate", "Notebook pass rate", "rate", 1, "Notebooks that passed on every configuration they ran on ÷ notebooks that ran on at least one configuration."],
-    ["coverage", "Coverage", "rate", 1, "Executed ÷ (planned − skipped): the share of planned notebook runs that actually ran."],
+    ["notebook_pass_rate", "Notebook pass rate", "rate", 1, "Passed ÷ executed notebook runs (each notebook on each configuration; executed = passed + failed + timeout + error)."],
     ["failing_notebooks", "Failing notebooks", "count", -1, "Notebooks with at least one failed, timed-out or errored configuration."],
     ["new_failures", "New failures", "count", -1, "Notebook × configuration results failing now that passed the previous time they ran, or that have no earlier result."],
     ["fixed", "Fixed", "count", 1, "Notebook × configuration results passing now that failed the previous time they ran."],
-    ["not_run", "Not run", "count", -1, "Planned notebook runs that never executed (test job failed before the tests, was cancelled or interrupted)."],
+    ["executed", "Executed", "count", 1, "Notebook × configuration runs that actually ran (passed + failed + timeout + error)."],
+    ["skipped", "Skipped", "count", 0, "Planned notebook × configuration runs skipped on purpose (ignore lists, skip configs, device constraints)."],
     ["wall_clock_s", "Wall clock", "duration", -1, "Time from the start of the nightly run to the end of its last test job."],
   ];
 
@@ -263,7 +277,7 @@
         } else {
           const magnitude = kind === "rate" ? `${Math.abs(kpi.delta * 100).toFixed(1)} pp` : kind === "duration" ? duration(kpi.delta) : String(Math.abs(kpi.delta));
           delta = `${kpi.delta > 0 ? "▲" : "▼"} ${magnitude}`;
-          cls += kpi.delta * direction > 0 ? " good" : " bad";
+          cls += direction === 0 ? " same" : kpi.delta * direction > 0 ? " good" : " bad";
         }
       }
       box.append(
@@ -297,15 +311,13 @@
 
   function lineChart(nights) {
     const series = [
-      ["pass_rate", "Pass rate", "s1"],
       ["notebook_pass_rate", "Notebook pass rate", "s2"],
-      ["coverage", "Coverage", "s3"],
     ];
     const values = nights.flatMap((night) => series.map(([key]) => night[key]).filter(isNum));
     const low = values.length ? Math.max(0, Math.floor((Math.min(...values) - 0.02) * 10) / 10) : 0;
     const y = (value) => CHART.top + (1 - (value - low) / (1 - low || 1)) * (CHART.height - CHART.top - CHART.bottom);
     const x = xScale(nights.length);
-    const root = svg("svg", { viewBox: `0 0 ${CHART.width} ${CHART.height}`, class: "chart", role: "img", "aria-label": "Pass rate, notebook pass rate and coverage per night" });
+    const root = svg("svg", { viewBox: `0 0 ${CHART.width} ${CHART.height}`, class: "chart", role: "img", "aria-label": "Notebook pass rate per night" });
     for (let i = 0; i <= 4; i++) {
       const value = low + ((1 - low) * i) / 4;
       root.append(
@@ -339,25 +351,42 @@
       { class: "legend" },
       series.map(([, label, cls]) => el("span", null, el("span", { class: "swatch", style: `background: var(--${cls === "s1" ? "P" : cls === "s2" ? "line-2" : "line-3"})` }), label))
     );
-    return el("div", { class: "chart-card" }, el("h3", null, "Pass rates and coverage"), legend, root);
+    return el("div", { class: "chart-card" }, el("h3", null, "Notebook pass rate"), legend, root);
   }
 
   function barChart(nights) {
-    const kinds = [
-      ["failed", "Failed", "F"],
-      ["timeout", "Timeout", "T"],
-      ["error", "Error", "E"],
-      ["not_run", "Not run", "N"],
+    // Two bars per night: executed results stacked by status (plus "not run" when a job stopped early), and skipped runs.
+    const bars = [
+      [
+        ["passed", "Passed", "P"],
+        ["error", "Error", "E"],
+        ["failed", "Failed", "F"],
+        ["timeout", "Timeout", "T"],
+        ["not_run", "Not run", "N"],
+      ],
+      [["skipped", "Skipped", "S"]],
     ];
-    const totals = nights.map((night) => kinds.reduce((sum, [key]) => sum + (isNum(night[key]) ? night[key] : 0), 0));
-    const max = Math.max(1, ...totals);
-    const plot = CHART.height - CHART.top - CHART.bottom;
-    const y = (value) => CHART.top + plot - (value / max) * plot;
-    const x = xScale(nights.length);
+    const kinds = bars.flat();
+    const count = (night, key) => (isNum(night[key]) ? night[key] : 0);
+    const sum = (night, bar) => bar.reduce((total, [key]) => total + count(night, key), 0);
+    const highest = Math.max(1, ...nights.flatMap((night) => bars.map((bar) => sum(night, bar))));
+    // Round the axis up to a 1/2/5 × 10^n step so its labels don't collide with the bar totals.
+    const step = (() => {
+      const raw = highest / 4;
+      const power = 10 ** Math.floor(Math.log10(raw));
+      return [1, 2, 5, 10].map((m) => m * power).find((value) => value >= raw);
+    })();
+    const max = Math.ceil(highest / step) * step;
+    const top = CHART.top + 10;
+    const plot = CHART.height - top - CHART.bottom;
+    const y = (value) => top + plot - (value / max) * plot;
     const slot = (CHART.width - CHART.left - CHART.right) / Math.max(nights.length, 1);
-    const width = Math.max(2, Math.min(24, slot * 0.7));
-    const root = svg("svg", { viewBox: `0 0 ${CHART.width} ${CHART.height}`, class: "chart", role: "img", "aria-label": "Failed, timed-out, errored and not run results per night" });
-    for (const value of [0, Math.round(max / 2), max]) {
+    // Each night gets an equal slot; its two bars sit side by side in the middle of it.
+    const x = (index) => CHART.left + slot * (index + 0.5);
+    const width = Math.max(1.5, Math.min(22, slot * 0.36));
+    const gap = Math.min(3, width * 0.15);
+    const root = svg("svg", { viewBox: `0 0 ${CHART.width} ${CHART.height}`, class: "chart", role: "img", "aria-label": "Executed and skipped notebook runs per night" });
+    for (let value = 0; value <= max; value += step) {
       root.append(
         svg("line", { x1: CHART.left, x2: CHART.width - CHART.right, y1: y(value), y2: y(value), class: "grid" }),
         svg("text", { x: CHART.left - 6, y: y(value) + 4, class: "axis", "text-anchor": "end" }, value)
@@ -365,27 +394,43 @@
     }
     nights.forEach((night, index) => {
       const group = svg("g", { class: night.test ? "test" : null });
-      let base = 0;
-      for (const [key, , cls] of kinds) {
-        const value = isNum(night[key]) ? night[key] : 0;
-        if (!value) continue;
-        group.append(svg("rect", { x: x(index) - width / 2, y: y(base + value), width, height: y(base) - y(base + value), class: `bar-${cls}` }));
-        base += value;
-      }
-      if (!base) group.append(svg("rect", { x: x(index) - width / 2, y: y(0) - 1, width, height: 1, class: "bar-N", opacity: 0.4 }));
-      if (night.test) group.append(svg("text", { x: x(index), y: y(base) - 3, class: "test-mark", "text-anchor": "middle" }, "test"));
-      const summary = kinds.map(([key, label]) => `${label.toLowerCase()} ${isNum(night[key]) ? night[key] : 0}`).join(", ");
-      group.append(svg("title", null, `${date(night.date)}${night.test ? " (test run)" : ""} — ${summary}`));
+      bars.forEach((bar, barIndex) => {
+        const left = barIndex === 0 ? x(index) - gap / 2 - width : x(index) + gap / 2;
+        let base = 0;
+        for (const [key, , cls] of bar) {
+          const value = count(night, key);
+          if (!value) continue;
+          group.append(svg("rect", { x: left, y: y(base + value), width, height: y(base) - y(base + value), class: `bar-${cls}` }));
+          base += value;
+        }
+        if (!base) group.append(svg("rect", { x: left, y: y(0) - 1, width, height: 1, class: "bar-N", opacity: 0.4 }));
+        if (nights.length <= 14) group.append(svg("text", { x: left + width / 2, y: y(base) - 3, class: "axis bar-total", "text-anchor": "middle" }, base));
+      });
+      if (night.test) group.append(svg("text", { x: x(index), y: top - 12, class: "test-mark", "text-anchor": "middle" }, "test"));
+      const executed = count(night, "passed") + count(night, "failed") + count(night, "timeout") + count(night, "error");
+      const notRun = count(night, "not_run");
+      const lines = [
+        `${date(night.date)}${night.test ? " (test run)" : ""} — executed ${executed}${notRun ? `, not run ${notRun}` : ""}, skipped ${count(night, "skipped")}`,
+        ...kinds.filter(([key]) => key !== "not_run" || notRun).map(([key, label]) => `${label}: ${count(night, key)}`),
+      ];
+      group.append(svg("title", null, lines.join("\n")));
       const href = safeUrl(night.url);
       root.append(href ? svg("a", { href, target: "_blank", rel: "noopener" }, group) : group);
     });
     xLabels(root, nights, x);
+    const anyNotRun = nights.some((night) => count(night, "not_run"));
     const legend = el(
       "div",
       { class: "legend" },
-      kinds.map(([, label, cls]) => el("span", null, el("span", { class: `swatch st-${cls}` }), label))
+      kinds.filter(([key]) => key !== "not_run" || anyNotRun).map(([, label, cls]) => el("span", null, el("span", { class: `swatch st-${cls}` }), label))
     );
-    return el("div", { class: "chart-card" }, el("h3", null, "Failing and lost results"), legend, root);
+    return el(
+      "div",
+      { class: "chart-card", title: "Left bar: executed runs (passed, error, failed, timeout; plus not run when a job stopped before its tests). Right bar: skipped runs." },
+      el("h3", null, "Executed and skipped notebook runs"),
+      legend,
+      root
+    );
   }
 
   function renderTrends(nights) {
@@ -410,6 +455,12 @@
       return;
     }
     const failures = latest.failures || {};
+    const commitUrl = ((latest.run || {}).commit || {}).url;
+    // GitHub serves a job's full plain-text log at <commit url>/checks/<job id>/logs.
+    const rawLog = (failure, failureLinks) => {
+      const jobId = failure.job_id || (/\/job\/(\d+)/.exec(failureLinks.job || "") || [])[1];
+      return commitUrl && jobId ? `${commitUrl}/checks/${jobId}/logs` : null;
+    };
     const rows = items.map((item) => {
       const failure = failures[item.failure_id] || {};
       const failureLinks = failure.links || {};
@@ -418,7 +469,7 @@
         "tr",
         null,
         el("td", null, notebookCell(item.notebook, catalog)),
-        el("td", { class: "nowrap" }, configCell(item.config_id)),
+        ...configCells(item.config_id),
         el("td", { class: "nowrap" }, badge(item.status), item.new ? el("span", { class: "tag" }, "NEW") : null),
         el(
           "td",
@@ -428,7 +479,7 @@
         ),
         el(
           "td",
-          null,
+          { class: "cause" },
           CAUSES[item.cause] || item.cause || "—",
           item.cause_detail ? el("div", { class: "muted small" }, item.cause_detail) : null,
           item.compare_url ? el("div", { class: "small" }, link(item.compare_url, "diff since last pass")) : null
@@ -447,13 +498,14 @@
             failureLinks.test_start
               ? ["test start", failureLinks.test_start]
               : ["log", failureLinks.log_excerpt || failureLinks.treon_step || failureLinks.job],
-            ["logs", failureLinks.logs_artifact],
+            ["raw log", rawLog(failure, failureLinks)],
+            ["log artefact", failureLinks.logs_artifact],
             ["source", failureLinks.notebook_source],
           ])
         )
       );
     });
-    box.append(table(["Notebook", "Config", "Status", "Since", "Probable cause", "Error", "Links"], rows));
+    box.append(table(["Notebook", ...CONFIG_HEADERS, "Status", "Since", "Probable cause", "Error", "Links"], rows, { class: "attention" }));
   }
 
   function renderChanges(latest, catalog) {
@@ -513,7 +565,17 @@
     const box = document.getElementById("health");
     show("sec-health", true);
     box.textContent = "";
-    const configs = latest.configs || [];
+    const DEVICE_ORDER = { CPU: 0, iGPU: 1, dGPU: 2 };
+    const configs = (latest.configs || [])
+      .map((config, index) => ({ config, index, parts: configParts(config.id) }))
+      .sort(
+        (a, b) =>
+          a.parts.os.localeCompare(b.parts.os) ||
+          (DEVICE_ORDER[a.parts.device] ?? 9) - (DEVICE_ORDER[b.parts.device] ?? 9) ||
+          a.parts.python.localeCompare(b.parts.python, undefined, { numeric: true }) ||
+          a.index - b.index
+      )
+      .map((item) => Object.assign({}, item.config, { parts: item.parts }));
     const notebooks = latest.notebooks || [];
     const historyNights = history.nights || [];
     const historyNotebooks = history.notebooks || {};
@@ -532,7 +594,21 @@
       el("button", { type: "button", class: "chip", "aria-pressed": key === activeFilter ? "true" : "false", "data-filter": key }, label)
     );
     const count = el("span", { class: "count", "aria-live": "polite" });
-    box.append(el("div", { class: "controls" }, search, chips, count));
+    const dimensions = [
+      ["os", "OS"],
+      ["device", "Device"],
+      ["python", "Python"],
+    ].map(([key, label]) => {
+      const values = [...new Set(configs.map((config) => config.parts[key]))];
+      const select = el(
+        "select",
+        { "aria-label": `Filter configurations by ${label}`, title: `Show only configurations with this ${label}` },
+        el("option", { value: "" }, `${label}: all`),
+        values.map((value) => el("option", { value }, `${label}: ${value || "—"}`))
+      );
+      return { key, select };
+    });
+    box.append(el("div", { class: "controls" }, search, chips, dimensions.map((d) => d.select), count));
 
     const entries = [];
     const body = el("tbody");
@@ -563,11 +639,13 @@
       );
       const statusCells = configs.map((config) => {
         const status = statuses[config.id];
-        if (!status) return el("td", { class: "c" }, badge("-", `${config.id}: not in this night`));
-        const parts = [`${config.id}: ${STATUS[code(status.s)]}`];
+        const cls = "c";
+        const label = configLabel(config.id);
+        if (!status) return el("td", { class: cls }, badge("-", `${label}: not in this night`));
+        const parts = [`${label}: ${STATUS[code(status.s)]}`];
         if (isNum(status.d)) parts.push(duration(status.d));
         if (status.r) parts.push(status.r);
-        return el("td", { class: "c" }, badge(status.s, parts.join(" · ")));
+        return el("td", { class: cls }, badge(status.s, parts.join(" · ")));
       });
       const modified = notebook.last_modified || null;
       const row = el(
@@ -615,6 +693,8 @@
         row,
         detail,
         expand,
+        cells: statusCells,
+        codes: configs.map((config) => code(statuses[config.id] && statuses[config.id].s)),
         text: `${notebook.title || ""} ${notebook.path} ${tagText}`.toLowerCase(),
         failing: Boolean(notebook.failing),
         flaky: Boolean(notebook.flaky),
@@ -623,25 +703,62 @@
       });
     }
 
-    const headers = [
-      "Notebook",
-      ...configs.map((config) => ({ text: configLabel(config.id), attrs: { class: "c", title: config.id } })),
-      { text: `Last ${historyNights.length} nights`, attrs: { title: "Worst status across configurations per night (oldest → newest)" } },
-      "Modified",
-    ];
-    box.append(
-      el(
-        "div",
-        { class: "table-wrap tall" },
-        el("table", null, el("thead", null, el("tr", null, headers.map((h) => (typeof h === "string" ? el("th", { scope: "col" }, h) : el("th", Object.assign({ scope: "col" }, h.attrs), h.text))))), body)
-      )
-    );
+    const thead = el("thead");
+    box.append(el("div", { class: "table-wrap tall" }, el("table", { class: "health" }, thead, body)));
+
+    // Three header rows (OS → Device → Python); neighbouring visible columns with the same value are merged.
+    function renderHead(shown) {
+      thead.textContent = "";
+      const levels = ["os", "device", "python"];
+      const rows = levels.map(() => el("tr"));
+      const lastNights = { text: `Last ${historyNights.length} nights`, title: "Worst status across configurations per night (oldest → newest)" };
+      rows[0].append(el("th", { scope: "col", rowspan: "3" }, "Notebook"));
+      levels.forEach((level, depth) => {
+        let start = 0;
+        while (start < shown.length) {
+          const key = (index) => levels.slice(0, depth + 1).map((l) => shown[index].parts[l]).join("|");
+          let end = start + 1;
+          while (end < shown.length && key(end) === key(start)) end++;
+          const value = shown[start].parts[level] || "—";
+          const title = shown.slice(start, end).map((config) => config.id).join(", ");
+          rows[depth].append(
+            el("th", { scope: "col", colspan: String(end - start), class: `c lvl-${level}${start > 0 && shown[start - 1].parts.os !== shown[start].parts.os ? " grp" : ""}`, title }, level === "python" ? "py" + value : value)
+          );
+          start = end;
+        }
+      });
+      if (!shown.length) rows[0].append(el("th", { scope: "col", rowspan: "3", class: "c" }, "No configurations"));
+      rows[0].append(el("th", { scope: "col", rowspan: "3", title: lastNights.title }, lastNights.text), el("th", { scope: "col", rowspan: "3" }, "Modified"));
+      thead.append(...rows);
+    }
 
     function apply() {
       const query = search.value.trim().toLowerCase();
+      const wanted = dimensions.map((d) => [d.key, d.select.value]).filter(([, value]) => value);
+      const visibleColumns = configs.map((config) => wanted.every(([key, value]) => config.parts[key] === value));
+      const shown = configs.filter((_, index) => visibleColumns[index]);
+      renderHead(shown);
+      // A divider before the first shown column of each OS after the first one.
+      let previousOs = null;
+      const divider = configs.map((config, index) => {
+        if (!visibleColumns[index]) return false;
+        const starts = previousOs !== null && previousOs !== config.parts.os;
+        previousOs = config.parts.os;
+        return starts;
+      });
+      const narrowed = wanted.length > 0;
       let visible = 0;
       for (const entry of entries) {
-        const match = (!query || entry.text.includes(query)) && (activeFilter === "all" || entry[activeFilter]);
+        entry.cells.forEach((cell, index) => {
+          cell.hidden = !visibleColumns[index];
+          cell.classList.toggle("grp", divider[index]);
+        });
+        // With OS/Device/Python filters, "Failing" and "Untested" consider only the shown configurations.
+        const codes = entry.codes.filter((_, index) => visibleColumns[index]);
+        const flags = narrowed
+          ? Object.assign({}, entry, { failing: codes.some((c) => ["F", "T", "E"].includes(c)), untested: !codes.some((c) => ["P", "F", "T", "E"].includes(c)) })
+          : entry;
+        const match = (!query || entry.text.includes(query)) && (activeFilter === "all" || flags[activeFilter]);
         entry.row.hidden = !match;
         entry.detail.hidden = !match || entry.expand.getAttribute("aria-expanded") !== "true";
         if (match) visible++;
@@ -649,6 +766,7 @@
       count.textContent = `${visible} of ${entries.length} notebooks`;
     }
     search.addEventListener("input", apply);
+    dimensions.forEach((d) => d.select.addEventListener("change", apply));
     for (const chip of chips) {
       chip.addEventListener("click", () => {
         activeFilter = chip.getAttribute("data-filter");
@@ -666,19 +784,19 @@
     const block = (title, items, headers, render) =>
       el("div", null, el("h3", null, title), items.length ? table(headers, items.map((item) => el("tr", null, render(item)))) : el("p", { class: "none" }, "None."));
     box.append(
-      block("Flaky", latest.flaky || [], ["Notebook", "Config", { text: "Score", attrs: { class: "num" } }, "Recent executions"], (item) => [
+      block("Flaky", latest.flaky || [], ["Notebook", ...CONFIG_HEADERS, { text: "Score", attrs: { class: "num" } }, "Recent executions"], (item) => [
         el("td", null, notebookCell(item.notebook, catalog)),
-        el("td", { class: "nowrap" }, configCell(item.config_id)),
+        ...configCells(item.config_id),
         el("td", { class: "num", title: `${item.transitions} pass/fail changes in ${item.executed} executed nights` }, isNum(item.score) ? item.score.toFixed(2) : "n/a"),
         el("td", null, strip(item.history, null, "recent executions")),
       ]),
       block(
         "Timeout risk",
         latest.timeout_risk || [],
-        ["Notebook", "Config", { text: "Median", attrs: { class: "num" } }, { text: "Timeout", attrs: { class: "num" } }, { text: "Of timeout", attrs: { class: "num" } }],
+        ["Notebook", ...CONFIG_HEADERS, { text: "Median", attrs: { class: "num" } }, { text: "Timeout", attrs: { class: "num" } }, { text: "Of timeout", attrs: { class: "num" } }],
         (item) => [
           el("td", null, notebookCell(item.notebook, catalog)),
-          el("td", { class: "nowrap" }, configCell(item.config_id)),
+          ...configCells(item.config_id),
           el("td", { class: "num" }, duration(item.median_s)),
           el("td", { class: "num" }, duration(item.timeout_s)),
           el("td", { class: "num" }, pct(item.ratio)),
@@ -687,10 +805,10 @@
       block(
         "Duration regressions",
         latest.duration_regressions || [],
-        ["Notebook", "Config", { text: "Duration", attrs: { class: "num" } }, { text: "Baseline", attrs: { class: "num" } }, { text: "Ratio", attrs: { class: "num" } }],
+        ["Notebook", ...CONFIG_HEADERS, { text: "Duration", attrs: { class: "num" } }, { text: "Baseline", attrs: { class: "num" } }, { text: "Ratio", attrs: { class: "num" } }],
         (item) => [
           el("td", null, notebookCell(item.notebook, catalog)),
-          el("td", { class: "nowrap" }, configCell(item.config_id)),
+          ...configCells(item.config_id),
           el("td", { class: "num" }, duration(item.duration_s)),
           el("td", { class: "num", title: "median of the previous passed runs" }, duration(item.baseline_s)),
           el("td", { class: "num" }, isNum(item.ratio) ? `×${item.ratio.toFixed(2)}` : "n/a"),

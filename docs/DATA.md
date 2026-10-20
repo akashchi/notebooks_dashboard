@@ -85,7 +85,7 @@ Every file is JSON. All lists are ordered as described. Nights are ordered oldes
 
 ```json
 {"nights": [{"date": "2026-10-12", "run_id": 1, "attempt": 1, "url": "...", "sha": "...", "short_sha": "abc1234", "conclusion": "failure", "test": false,
-             "pass_rate": 0.98, "notebook_pass_rate": 0.96, "coverage": 1.0,
+             "pass_rate": 0.98, "notebook_pass_rate": 0.98, "coverage": 1.0,
              "executed": 589, "passed": 577, "failed": 2, "timeout": 10, "error": 0, "not_run": 0, "skipped": 413,
              "untested": 59, "failing_notebooks": 4, "jobs_failed_before_tests": 0, "wall_clock_s": 12634, "compute_s": 160000}]}
 ```
@@ -107,13 +107,12 @@ The night shown on the page: the newest official night, or the test run in test-
   "summary": { "...": "producer summary block, unchanged" },
   "previous": null,
   "kpis": {
-    "pass_rate": {"value": 0.98, "delta": -0.01},
-    "notebook_pass_rate": {"value": 0.96, "delta": 0.0},
-    "coverage": {"value": 1.0, "delta": null},
+    "notebook_pass_rate": {"value": 0.98, "delta": 0.0},
     "failing_notebooks": {"value": 4, "delta": 1},
     "new_failures": {"value": 1, "delta": null},
     "fixed": {"value": 0, "delta": null},
-    "not_run": {"value": 0, "delta": 0},
+    "executed": {"value": 589, "delta": 0},
+    "skipped": {"value": 413, "delta": 0},
     "wall_clock_s": {"value": 12634, "delta": -300}
   },
   "configs": [{"id": "cpu-ubuntu-22.04-py3.11", "device": "cpu", "os": "ubuntu-22.04", "os_family": "linux", "python": "3.11"}],
@@ -147,7 +146,7 @@ The night shown on the page: the newest official night, or the test run in test-
 Details:
 
 - **`notebooks`**: the full catalog sorted by path, including notebooks without results in this night (their `status` is `{}` and `worst` is `-`). `failing` means at least one F, T or E result. `r` is the skip or not-run reason (see `results` above). Config `device` is `cpu`, `igpu` or `dgpu` (the page labels CPU configs without a device suffix and GPU ones with "iGPU" or "dGPU").
-- **`kpis`**: `delta` is value minus the previous official night's value, or `null` when there is no previous night or the value is missing. `new_failures` and `fixed` count `changes`.
+- **`kpis`**: `delta` is value minus the previous official night's value, or `null` when there is no previous night or the value is missing. `new_failures` and `fixed` count `changes`. `notebook_pass_rate` is computed by the dashboard as passed ÷ executed notebook × configuration runs (the producer's per-notebook value is not used).
 - **`attention`**: every failing (notebook, config) of the night, sorted by `new` first, then by `streak_nights` descending, then notebook and config.
   - `since` is the first night of the current failing streak.
   - `last_pass` is the last night with `passed` before it (null if none in history).

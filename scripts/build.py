@@ -226,10 +226,11 @@ def make_latest(history: metrics.History, catalog: Optional[dict], repository: O
     def kpi(name: str) -> dict:
         return metrics.kpi(entry.get(name), previous_entry.get(name), has_previous)
 
-    kpis = {name: kpi(name) for name in ("pass_rate", "notebook_pass_rate", "coverage", "failing_notebooks")}
+    kpis = {name: kpi(name) for name in ("notebook_pass_rate", "failing_notebooks")}
     kpis["new_failures"] = {"value": len(changes["new_failures"]) if record else None, "delta": None}
     kpis["fixed"] = {"value": len(changes["fixed"]) if record else None, "delta": None}
-    kpis["not_run"] = kpi("not_run")
+    kpis["executed"] = kpi("executed")
+    kpis["skipped"] = kpi("skipped")
     kpis["wall_clock_s"] = kpi("wall_clock_s")
     previous_ref = None
     if previous:

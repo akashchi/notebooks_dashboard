@@ -466,7 +466,7 @@ def night_entry(record: dict, test: bool = False) -> dict:
         "conclusion": run.get("conclusion"),
         "test": test,
         "pass_rate": pass_rate,
-        "notebook_pass_rate": summary.get("notebook_pass_rate"),
+        "notebook_pass_rate": round(passed / executed, 4) if executed and passed is not None else None,
         "coverage": summary.get("coverage"),
         "executed": executed,
         "passed": passed,

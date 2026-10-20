@@ -7,10 +7,10 @@ published at **https://akashchi.github.io/notebooks_dashboard/**.
 
 ## What it shows
 
-- **Latest nightly:** pass rate, notebook pass rate, coverage, failing notebooks, new failures, fixed notebooks, notebooks not run and wall clock, each with the change since the previous night.
-- **Trends** over the last 90 nights: pass rates, coverage, and counts of failures, timeouts, errors and notebooks not run.
+- **Latest nightly:** notebook pass rate, failing notebooks, new failures, fixed notebooks, executed and skipped notebook runs and wall clock, each with the change since the previous night.
+- **Trends** over the last 90 nights: notebook pass rate, and two bars per night: executed notebook runs stacked by status (passed, error, failed, timeout, plus not run when a job stopped early) and skipped runs.
 - **Needs attention:** every failing notebook × configuration with the night it started failing and the streak length, the last passing night, a diff link between the two commits, a probable cause (notebook changed / OpenVINO changed / packages changed / external or flaky), the error, and links to the job, logs and source.
-- **Notebook health:** each notebook's status per configuration and a 30-night history strip, searchable and filterable. Expanding a notebook shows per-configuration history and failure details (traceback, failing cell, log tail).
+- **Notebook health:** each notebook's status per configuration, with columns grouped by OS → device → Python and filterable by each of them, and a 30-night history strip; searchable and filterable by status. Expanding a notebook shows per-configuration history and failure details (traceback, failing cell, log tail).
 - **Flaky notebooks, timeout risks, duration regressions, recurring error groups** and **infrastructure problems** (jobs that failed before running notebooks).
 
 Metric definitions are in [docs/DATA.md](docs/DATA.md) and in the producer's

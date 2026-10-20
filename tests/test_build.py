@@ -52,7 +52,7 @@ TREND_KEYS = set(
 LATEST_KEYS = set(
     "test run summary previous kpis configs notebooks failures attention changes flaky duration_regressions timeout_risk error_groups mttr_nights infra".split()
 )
-KPI_NAMES = ["pass_rate", "notebook_pass_rate", "coverage", "failing_notebooks", "new_failures", "fixed", "not_run", "wall_clock_s"]
+KPI_NAMES = ["notebook_pass_rate", "failing_notebooks", "new_failures", "fixed", "executed", "skipped", "wall_clock_s"]
 NOTEBOOK_KEYS = {"path", "title", "dir", "tags", "links", "last_modified", "status", "worst", "failing", "flaky", "new_failure"}
 ATTENTION_KEYS = set("notebook config_id status failure_id new since streak_nights last_pass compare_url cause cause_detail category error_class error".split())
 REF_KEYS = {"date", "run_id", "url", "sha"}
@@ -224,8 +224,8 @@ def test_build_official_history(tmp_path):
     assert latest["changes"]["fixed"] == [{"notebook": HELLO_DETECTION, "config_id": config_id} for config_id in [*LINUX, *WINDOWS]]
     kpis = latest["kpis"]
     assert kpis["failing_notebooks"] == {"value": 3, "delta": 0}
-    assert (kpis["new_failures"]["value"], kpis["fixed"]["value"], kpis["not_run"]) == (1, 6, {"value": 0, "delta": 0})
-    assert kpis["pass_rate"]["delta"] is not None and kpis["wall_clock_s"]["delta"] == 0
+    assert (kpis["new_failures"]["value"], kpis["fixed"]["value"], kpis["skipped"]["delta"]) == (1, 6, 0)
+    assert kpis["notebook_pass_rate"]["delta"] is not None and kpis["wall_clock_s"]["delta"] == 0
 
     attention = [(item["notebook"], item["config_id"], item["new"], item["streak_nights"], item["cause"]) for item in latest["attention"]]
     assert attention == [

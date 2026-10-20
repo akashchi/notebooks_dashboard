@@ -357,7 +357,7 @@ def test_night_entry_from_the_producer_report():
         16,
         0,
     )
-    assert (entry["pass_rate"], entry["notebook_pass_rate"], entry["coverage"]) == (0.8864, 0.75, 1.0)
+    assert (entry["pass_rate"], entry["notebook_pass_rate"], entry["coverage"]) == (0.8864, 0.8864, 1.0)
     assert (entry["failing_notebooks"], entry["jobs_failed_before_tests"], entry["untested"]) == (2, 0, 161)
     assert (entry["short_sha"], entry["conclusion"], entry["wall_clock_s"], entry["compute_s"]) == ("0a92f12", "failure", 3753.0, 11712.0)
 
