@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Dashboard build outputs (site/ is the frontend source, not mkdocs output)
+!/site
+_site/
+.cache/

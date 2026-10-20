@@ -1,0 +1,96 @@
+name: Update dashboard
+
+# Pulls the nightly data of openvinotoolkit/openvino_notebooks (treon_nightly.yml, artifact "nightly-dashboard-data"),
+# commits new nights to data/ and publishes the dashboard to GitHub Pages.
+
+on:
+  schedule:
+    # Nightlies start at about 00:40 UTC and finish by about 04:00 UTC (latest seen: 06:51 UTC).
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    inputs:
+      use_latest_artifact:
+        description: 'Show the most recent artifact of any branch/event as test data (not stored in the history)'
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'data/**'
+      - '**.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commit new nights to data/
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Run tests
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest -q
+
+      - name: Ingest nightly data
+        env:
+          # A token is required to download artifacts; NIGHTLY_ARTIFACTS_TOKEN is an optional fallback secret
+          # (fine-grained token with read-only access to public repositories).
+          GH_TOKEN: ${{ secrets.NIGHTLY_ARTIFACTS_TOKEN || github.token }}
+          USE_LATEST_ARTIFACT: ${{ inputs.use_latest_artifact && 'true' || 'false' }}
+        run: |
+          ARGS=()
+          if [[ "$USE_LATEST_ARTIFACT" == "true" ]]; then ARGS+=(--use_latest_artifact); fi
+          python scripts/ingest.py "${ARGS[@]}"
+
+      - name: Commit new nights
+        run: |
+          git add data
+          if git diff --cached --quiet; then
+            echo "No new nightly data."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Ingest nightly data ($(date -u +%Y-%m-%d))"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Build site
+        run: python scripts/build.py --out _site
+
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

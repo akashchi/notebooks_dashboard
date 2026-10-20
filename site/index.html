@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenVINO Notebooks — Nightly</title>
+  <meta name="description" content="Nightly test results of the OpenVINO notebooks">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <h1>OpenVINO Notebooks — Nightly</h1>
+      <p id="run-info" class="run-info" aria-live="polite">Loading…</p>
+    </div>
+  </header>
+  <div id="banner" class="wrap banner" role="status" hidden></div>
+  <main id="main" class="wrap">
+    <p id="message" class="message" hidden></p>
+    <section id="kpis" class="kpis" aria-label="Key metrics" hidden></section>
+    <section id="sec-trends" hidden>
+      <h2>Trends</h2>
+      <div id="trends" class="charts"></div>
+    </section>
+    <section id="sec-attention" hidden>
+      <h2>Needs attention</h2>
+      <div id="attention"></div>
+    </section>
+    <section id="sec-changes" hidden>
+      <h2>Changes since the previous night</h2>
+      <div id="changes" class="changes"></div>
+    </section>
+    <section id="sec-health" hidden>
+      <h2>Notebook health</h2>
+      <div id="health"></div>
+    </section>
+    <section id="sec-slow" hidden>
+      <h2>Flaky and slow</h2>
+      <div id="slow" class="slow"></div>
+    </section>
+    <section id="sec-errors" hidden>
+      <h2>Error groups</h2>
+      <div id="errors"></div>
+    </section>
+    <section id="sec-infra" hidden>
+      <h2>Infrastructure</h2>
+      <div id="infra"></div>
+    </section>
+  </main>
+  <footer id="footer" class="wrap foot"></footer>
+  <noscript><p class="wrap message">This dashboard needs JavaScript.</p></noscript>
+</body>
+</html>

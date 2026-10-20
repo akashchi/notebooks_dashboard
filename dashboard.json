@@ -1,0 +1,16 @@
+{
+  "source": {
+    "repository": "openvinotoolkit/openvino_notebooks",
+    "workflow": "treon_nightly.yml",
+    "workflow_name": "treon_nightly",
+    "artifact": "nightly-dashboard-data",
+    "branch": "latest",
+    "event": "schedule"
+  },
+  "windows": {
+    "trend": 90,
+    "matrix": 30,
+    "flaky": 14
+  },
+  "producer_readme": "https://github.com/openvinotoolkit/openvino_notebooks/blob/latest/.ci/nightly_report/README.md"
+}

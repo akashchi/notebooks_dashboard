@@ -1,0 +1,32 @@
+{
+ "runs": {
+  "38987161751": {
+   "artifact_created_at": "2026-10-17T03:06:46Z",
+   "artifact_id": 12087289043,
+   "attempt": 1,
+   "file": "runs/2026-10-17_38987161751.json",
+   "nightly_date": "2026-10-17"
+  },
+  "39083666282": {
+   "artifact_created_at": "2026-10-18T02:52:24Z",
+   "artifact_id": 12122728585,
+   "attempt": 1,
+   "file": "runs/2026-10-18_39083666282.json",
+   "nightly_date": "2026-10-18"
+  },
+  "39181838330": {
+   "artifact_created_at": "2026-10-19T03:52:44Z",
+   "artifact_id": 12161679921,
+   "attempt": 1,
+   "file": "runs/2026-10-19_39181838330.json",
+   "nightly_date": "2026-10-19"
+  },
+  "39348780593": {
+   "artifact_created_at": "2026-10-20T03:10:59Z",
+   "artifact_id": 12237634620,
+   "attempt": 1,
+   "file": "runs/2026-10-20_39348780593.json",
+   "nightly_date": "2026-10-20"
+  }
+ }
+}
