@@ -90,6 +90,13 @@
    "attempt": 1,
    "file": "runs/2026-10-29_40794346517.json",
    "nightly_date": "2026-10-29"
+  },
+  "40980005862": {
+   "artifact_created_at": "2026-10-30T03:23:27Z",
+   "artifact_id": 12951538302,
+   "attempt": 1,
+   "file": "runs/2026-10-30_40980005862.json",
+   "nightly_date": "2026-10-30"
   }
  }
 }
