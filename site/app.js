@@ -435,7 +435,8 @@
             return el(
               "td",
               { class: "num", title: `${count(night, key)} / ${denominator} ${ofExecuted ? "executed" : "planned"} runs` },
-              denominator ? pct(count(night, key) / denominator) : "n/a"
+              denominator ? pct(count(night, key) / denominator) : "n/a",
+              el("span", { class: "muted" }, ` (${count(night, key)})`)
             );
           })
         );
