@@ -11,7 +11,6 @@
   --F: #cf222e;
   --T: #bc4c00;
   --E: #8250df;
-  --N: #57606a;
   --S: #e3e8ee;
   --S-fg: #59636e;
   --good: #1a7f37;
@@ -38,7 +37,6 @@
     --F: #f85149;
     --T: #db6d28;
     --E: #ab7df8;
-    --N: #9198a1;
     --S: #2a313c;
     --S-fg: #9198a1;
     --good: #3fb950;
@@ -93,6 +91,8 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
 .chart-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; }
 .chart-card h3 { margin: 0.2rem 0; }
+.chart-card .status-percentages { font-size: 11px; }
+.status-percentages th, .status-percentages td { padding: 0.3rem; }
 .chart { width: 100%; height: auto; display: block; }
 .chart .grid { stroke: var(--border); stroke-width: 1; }
 .chart .axis { fill: var(--muted); font-size: 11px; }
@@ -108,7 +108,6 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .chart .bar-F { fill: var(--F); }
 .chart .bar-T { fill: var(--T); }
 .chart .bar-E { fill: var(--E); }
-.chart .bar-N { fill: var(--N); }
 .chart .bar-S { fill: var(--S); stroke: var(--S-fg); stroke-width: 0.5; }
 .chart .test rect { opacity: 0.45; }
 .chart a:hover rect, .chart a:focus rect { opacity: 0.75; }
@@ -123,7 +122,6 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .st-F { background: var(--F); }
 .st-T { background: var(--T); }
 .st-E { background: var(--E); }
-.st-N { background: var(--N); }
 .st-S { background: var(--S); color: var(--S-fg); }
 .st-x { background: transparent; border: 1px dotted var(--border); color: var(--muted); }
 .strip { display: inline-flex; gap: 1px; vertical-align: middle; }

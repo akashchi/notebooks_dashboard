@@ -16,12 +16,14 @@ Status codes used in strings:
 | Code | Status | Code | Status |
 |---|---|---|---|
 | `P` | passed | `S` | skipped |
-| `F` | failed | `N` | not_run |
+| `F` | failed | | |
 | `T` | timeout | `-` | absent (notebook not in that night) |
 | `E` | error | | |
 
 The worst status of a notebook in a night (across configurations) uses this order, worst first:
-`E` > `T` > `F` > `N` > `P` > `S` > `-`.
+`E` > `T` > `F` > `P` > `S` > `-`.
+
+Stored producer reports retain their original `not_run` results. During dashboard builds these are mapped to infrastructure errors (`E`), including failure details and error groups. They contribute to Error and Executed counts, pass-rate denominators, failing notebooks, changes and history. Source files are not rewritten.
 
 ## 1. Stored history (`data/`)
 
@@ -86,7 +88,7 @@ Every file is JSON. All lists are ordered as described. Nights are ordered oldes
 ```json
 {"nights": [{"date": "2026-10-12", "run_id": 1, "attempt": 1, "url": "...", "sha": "...", "short_sha": "abc1234", "conclusion": "failure", "test": false,
              "pass_rate": 0.98, "notebook_pass_rate": 0.98, "coverage": 1.0,
-             "executed": 589, "passed": 577, "failed": 2, "timeout": 10, "error": 0, "not_run": 0, "skipped": 413,
+             "executed": 589, "passed": 577, "failed": 2, "timeout": 10, "error": 0, "skipped": 413,
              "untested": 59, "failing_notebooks": 4, "jobs_failed_before_tests": 0, "wall_clock_s": 12634, "compute_s": 160000}]}
 ```
 
@@ -104,7 +106,7 @@ The night shown on the page: the newest official night, or the test run in test-
           "started_at": "...", "finished_at": "...", "wall_clock_s": 12634, "conclusion": "failure",
           "commit": {"sha": "...", "short_sha": "...", "message": "...", "url": "...", "date": "...", "author": "..."},
           "inputs": {"ov_branch": "master", "docker_tag": "...", "timeout_s": 1200}},
-  "summary": { "...": "producer summary block, unchanged" },
+  "summary": { "...": "producer summary, with unstarted results folded into error and executed counts" },
   "previous": null,
   "kpis": {
     "notebook_pass_rate": {"value": 0.98, "delta": 0.0},
@@ -138,8 +140,7 @@ The night shown on the page: the newest official night, or the test run in test-
   "error_groups": [{"signature": "...", "category": "...", "error_class": "...", "exception_type": "...", "exception_message": "...",
                     "occurrences": 3, "notebooks": ["..."], "configs": ["..."], "nights_seen": 5, "first_seen": "2026-10-01", "last_seen": "2026-10-12"}],
   "mttr_nights": 2.5,
-  "infra": {"jobs_failed_before_tests": [{"name": "...", "url": "...", "config_id": "...", "batch": "batch_0", "failed_step": "Install python dependencies"}],
-            "not_run": 0}
+  "infra": {"jobs_failed_before_tests": [{"name": "...", "url": "...", "config_id": "...", "batch": "batch_0", "failed_step": "Install python dependencies"}]}
 }
 ```
 

@@ -32,7 +32,7 @@ from history_factory import (
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = "2026-10-12T08:05:00Z"
-STATUS_CHARS = set("PFTENS-")
+STATUS_CHARS = set("PFTES-")
 META_KEYS = {
     "generated_at",
     "source",
@@ -46,7 +46,7 @@ META_KEYS = {
     "warnings",
 }
 TREND_KEYS = set(
-    "date run_id attempt url sha short_sha conclusion test pass_rate notebook_pass_rate coverage executed passed failed timeout error not_run skipped "
+    "date run_id attempt url sha short_sha conclusion test pass_rate notebook_pass_rate coverage executed passed failed timeout error skipped "
     "untested failing_notebooks jobs_failed_before_tests wall_clock_s compute_s".split()
 )
 LATEST_KEYS = set(
@@ -113,7 +113,7 @@ def check_latest(latest: dict) -> None:
     assert all(set(item) == {"notebook", "config_id", "duration_s", "baseline_s", "ratio"} for item in latest["duration_regressions"])
     assert all(set(item) == {"notebook", "config_id", "median_s", "timeout_s", "ratio"} for item in latest["timeout_risk"])
     assert all({"signature", "occurrences", "nights_seen", "first_seen", "last_seen"} <= set(group) for group in latest["error_groups"])
-    assert set(latest["infra"]) == {"jobs_failed_before_tests", "not_run"}
+    assert set(latest["infra"]) == {"jobs_failed_before_tests"}
     assert all(set(job) == {"name", "url", "config_id", "batch", "failed_step"} for job in latest["infra"]["jobs_failed_before_tests"])
 
 
@@ -250,7 +250,7 @@ def test_build_official_history(tmp_path):
     assert (groups["db0467f22081"]["nights_seen"], groups["db0467f22081"]["first_seen"]) == (2, "2026-10-04")
     assert (groups["10b5fae3267c"]["nights_seen"], groups["10b5fae3267c"]["first_seen"], groups["10b5fae3267c"]["last_seen"]) == (5, "2026-10-01", "2026-10-05")
     assert latest["mttr_nights"] == 3.0
-    assert latest["infra"] == {"jobs_failed_before_tests": [], "not_run": 0}
+    assert latest["infra"] == {"jobs_failed_before_tests": []}
 
     notebooks = {notebook["path"]: notebook for notebook in latest["notebooks"]}
     catalog = catalog_from_report(reports[-1])["notebooks"]
@@ -350,7 +350,7 @@ def test_empty_data(tmp_path):
     latest = files["latest"]
     assert (latest["test"], latest["run"], latest["summary"], latest["previous"], latest["notebooks"]) == (False, None, None, None, [])
     assert all(kpi == {"value": None, "delta": None} for kpi in latest["kpis"].values())
-    assert latest["infra"] == {"jobs_failed_before_tests": [], "not_run": None} and latest["mttr_nights"] is None
+    assert latest["infra"] == {"jobs_failed_before_tests": []} and latest["mttr_nights"] is None
 
 
 def test_catalog_without_runs_lists_the_notebooks(tmp_path):
@@ -461,7 +461,7 @@ def test_sample_history_covers_every_section():
     assert [(item["notebook"], item["config_id"]) for item in latest["flaky"]] == [(HELLO_WORLD, W12)]
     assert [(item["notebook"], item["config_id"]) for item in latest["duration_regressions"]] == [(BACKGROUND, L11)]
     assert {(item["notebook"], item["config_id"]) for item in latest["timeout_risk"]} == {(YOLO, config_id) for config_id in LINUX}
-    assert latest["mttr_nights"] == 2.0
-    assert history["notebooks"][SD3]["cfg"][L11][4:6] == "--" and history["notebooks"][HELLO_WORLD]["cfg"][W11][12] == "N"
+    assert latest["mttr_nights"] == 1.8
+    assert history["notebooks"][SD3]["cfg"][L11][4:6] == "--" and history["notebooks"][HELLO_WORLD]["cfg"][W11][12] == "E"
     assert documents["trend"]["nights"][12]["jobs_failed_before_tests"] == 1 and documents["trend"]["nights"][7]["attempt"] == 2
     assert L12 in history["notebooks"][SD3]["cfg"]

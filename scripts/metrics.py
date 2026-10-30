@@ -7,7 +7,7 @@ oldest -> newest and, in test-data mode, the test run appended after them as the
 import statistics
 from typing import Iterable, Optional
 
-from compact import ABSENT_CODE, STATUS_CODES, expand_results
+from compact import ABSENT_CODE, STATUS_CODES, dashboard_record, expand_results
 
 EXECUTED = frozenset({"passed", "failed", "timeout", "error"})
 FAILING = frozenset({"failed", "timeout", "error"})
@@ -90,9 +90,9 @@ class History:
     """Official nights (deduplicated and ordered) followed by the optional test run."""
 
     def __init__(self, official: Iterable[dict], test_run: Optional[dict] = None):
-        self.official = order_runs(official)
-        self.test_run = test_run
-        self.runs = self.official + ([test_run] if test_run is not None else [])
+        self.official = order_runs(dashboard_record(record) for record in official)
+        self.test_run = dashboard_record(test_run) if test_run is not None else None
+        self.runs = self.official + ([self.test_run] if self.test_run is not None else [])
         self.refs = [run_ref(record) for record in self.runs]
         self.series = build_series(self.runs)
         self.failures = [{failure_key(failure): failure for failure in record.get("failures") or []} for record in self.runs]
@@ -132,7 +132,7 @@ def previous_executed(points: list, night: int) -> Optional[dict]:
 def changes(history: History, night: int) -> dict:
     """New failures and fixes of `night` against the previous executed status of each (notebook, config).
 
-    A failure without any earlier executed result (newly added or previously only skipped/not run) is new too,
+    A failure without any earlier executed result (newly added or previously only skipped) is new too,
     with `previous_status` null, unless `night` is the first night of the history.
     """
     new_failures, fixed = [], []
@@ -434,6 +434,7 @@ def jobs_failed_before_tests(record: dict) -> list:
 
 def night_entry(record: dict, test: bool = False) -> dict:
     """One trend.json night: run identity, rates and counts (producer summary; counted from the results when missing)."""
+    record = dashboard_record(record)
     run = _run(record)
     commit = run.get("commit") or {}
     summary = record.get("summary") or {}
@@ -473,7 +474,6 @@ def night_entry(record: dict, test: bool = False) -> dict:
         "failed": count("failed"),
         "timeout": count("timeout"),
         "error": count("error"),
-        "not_run": count("not_run"),
         "skipped": count("skipped"),
         "untested": (summary.get("notebooks") or {}).get("untested"),
         "failing_notebooks": failing_notebooks(record),

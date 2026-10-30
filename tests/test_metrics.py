@@ -61,7 +61,7 @@ def test_changes_new_failures_and_fixed():
 def test_changes_look_back_over_skipped_not_run_and_absent_nights():
     history = history_of({k("a"): "PS-NF", k("b"): "FN-SP", k("c"): "SSSSF", k("d"): "TS-SP"})
     changes = metrics.changes(history, history.displayed)
-    assert [item["notebook"] for item in changes["new_failures"]] == ["a/a.ipynb", "c/c.ipynb"]
+    assert [item["notebook"] for item in changes["new_failures"]] == ["c/c.ipynb"]
     assert changes["fixed"] == [{"notebook": "b/b.ipynb", "config_id": CFG}, {"notebook": "d/d.ipynb", "config_id": CFG}]
 
 
@@ -71,7 +71,6 @@ def test_changes_without_an_earlier_result_are_new_except_on_the_first_night():
     changes = metrics.changes(history, history.displayed)
     assert [(item["notebook"], item["status"], item["previous_status"]) for item in changes["new_failures"]] == [
         ("b/b.ipynb", "failed", None),
-        ("c/c.ipynb", "timeout", None),
     ]
     assert changes["fixed"] == []
     first = history_of({k("a"): "F"})
@@ -82,7 +81,7 @@ def test_streak_ignores_skipped_not_run_and_absent_nights():
     shas = [sha_for(night) for night in range(8)]
     history = history_of({KEY: "PPFSF-NF"}, shas=shas)
     [item] = metrics.attention(history, history.displayed, REPOSITORY)
-    assert item["streak_nights"] == 3
+    assert item["streak_nights"] == 4
     assert item["since"] == {"date": "2026-10-03", "run_id": 1002, "url": run_url(1002), "sha": shas[2]}
     assert item["last_pass"] == {"date": "2026-10-02", "run_id": 1001, "url": run_url(1001), "sha": shas[1]}
     assert item["compare_url"] == f"https://github.com/{REPOSITORY}/compare/{shas[1]}...{shas[2]}"
@@ -210,7 +209,7 @@ def flaky_of(codes: str, window: int = 14, **kwargs) -> list:
 def test_flaky_detection():
     assert flaky_of("PFPFPF") == [{"notebook": NB, "config_id": CFG, "score": 0.83, "transitions": 5, "executed": 6, "history": "PFPFPF"}]
     [item] = flaky_of("PFPS-NPF")
-    assert (item["history"], item["transitions"], item["executed"], item["score"]) == ("PFPPF", 3, 5, 0.6)
+    assert (item["history"], item["transitions"], item["executed"], item["score"]) == ("PFPEPF", 5, 6, 0.83)
     assert flaky_of("PTPE")[0]["transitions"] == 3
 
 
@@ -348,14 +347,13 @@ def test_test_run_is_compared_with_the_official_history():
 def test_night_entry_from_the_producer_report():
     entry = metrics.night_entry(compact_report(fixture_report()))
     assert (entry["run_id"], entry["date"], entry["attempt"], entry["test"]) == (38222478164, "2026-10-12", 1, False)
-    assert (entry["executed"], entry["passed"], entry["failed"], entry["timeout"], entry["error"], entry["skipped"], entry["not_run"]) == (
+    assert (entry["executed"], entry["passed"], entry["failed"], entry["timeout"], entry["error"], entry["skipped"]) == (
         44,
         39,
         2,
         3,
         0,
         16,
-        0,
     )
     assert (entry["pass_rate"], entry["notebook_pass_rate"], entry["coverage"]) == (0.8864, 0.8864, 1.0)
     assert (entry["failing_notebooks"], entry["jobs_failed_before_tests"], entry["untested"]) == (2, 0, 161)
@@ -366,7 +364,7 @@ def test_night_entry_counts_results_without_a_summary():
     record = make_run(1, "2026-10-01", [result(), result("b/b.ipynb", status="failed"), result("c/c.ipynb", status="skipped")])
     record["summary"] = {}
     entry = metrics.night_entry(record, test=True)
-    assert (entry["executed"], entry["passed"], entry["failed"], entry["skipped"], entry["not_run"]) == (2, 1, 1, 1, 0)
+    assert (entry["executed"], entry["passed"], entry["failed"], entry["skipped"]) == (2, 1, 1, 1)
     assert (entry["pass_rate"], entry["failing_notebooks"], entry["test"]) == (0.5, 1, True)
 
 
@@ -376,6 +374,31 @@ def test_jobs_failed_before_tests():
     expected = {"name": jobs[1]["name"], "url": jobs[1]["url"], "config_id": CFG2, "batch": "batch_1", "failed_step": "Install python dependencies"}
     assert metrics.jobs_failed_before_tests(record) == [expected]
     assert metrics.night_entry(record)["jobs_failed_before_tests"] == 1
+
+
+def test_unstarted_results_become_infrastructure_errors_everywhere():
+    from copy import deepcopy
+    import build
+    from compact import dashboard_record
+
+    record = make_run(1, "2026-10-01", [result(), result("b/b.ipynb", status="not_run"), result("c/c.ipynb", status="skipped")])
+    original = deepcopy(record)
+    normalized = dashboard_record(record)
+    assert dashboard_record(normalized) == normalized
+    assert record == original
+    documents = build.compute({"source": {"repository": REPOSITORY}}, [record])
+    entry = documents["trend"]["nights"][0]
+    assert (entry["executed"], entry["error"], entry["passed"], entry["skipped"], entry["notebook_pass_rate"]) == (2, 1, 1, 1, 0.5)
+    assert "not_run" not in entry
+    latest = documents["latest"]
+    assert latest["kpis"]["executed"]["value"] == 2
+    assert latest["kpis"]["failing_notebooks"]["value"] == 1
+    [item] = latest["attention"]
+    assert item["status"] == "error" and item["category"] == "infrastructure"
+    assert latest["failures"][item["failure_id"]]["exception_type"] == "InfrastructureError"
+    assert latest["error_groups"][0]["occurrences"] == 1
+    assert documents["history"]["notebooks"]["b/b.ipynb"]["cfg"][CFG] == "E"
+    assert latest["notebooks"][1]["status"][CFG]["s"] == "E"
 
 
 def test_kpi_delta():

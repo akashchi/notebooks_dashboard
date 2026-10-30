@@ -5,6 +5,7 @@ with results stored as arrays and key-package sets deduplicated (see docs/DATA.m
 """
 
 import re
+from copy import deepcopy
 from typing import Optional
 
 FORMAT_VERSION = 1
@@ -128,6 +129,70 @@ def expand_results(run: dict) -> list[dict]:
         row["packages"] = pkgsets[index] if isinstance(index, int) and 0 <= index < len(pkgsets) else {}
         rows.append(row)
     return rows
+
+
+def dashboard_record(record: dict) -> dict:
+    """Map legacy unstarted results to infrastructure errors without changing stored producer data."""
+    rows = expand_results(record)
+    record = deepcopy(record)
+    fields = record.get("result_fields") or list(RESULT_FIELDS)
+    failures = record.setdefault("failures", [])
+    for values, row in zip(record["results"], rows):
+        if row.get("status") != "not_run":
+            continue
+        failure_id = row.get("failure_id") or f"{row['config_id']}/{row['notebook']}"
+        values[fields.index("status")] = "error"
+        values[fields.index("failure_id")] = failure_id
+        jobs = [job for job in record.get("jobs", []) if job.get("config_id") == row["config_id"] and job.get("tests_started") is False]
+        job = jobs[0] if len(jobs) == 1 else {}
+        failures[:] = [failure for failure in failures if failure.get("id") != failure_id]
+        failures.append(
+            {
+                "id": failure_id,
+                "notebook": row["notebook"],
+                "config_id": row["config_id"],
+                "job_id": job.get("id"),
+                "status": "error",
+                "category": "infrastructure",
+                "error_class": "job_failed_before_execution",
+                "signature": "infrastructure:job_failed_before_execution",
+                "exception_type": "InfrastructureError",
+                "exception_message": f"Notebook execution never started: {row.get('reason') or 'job interrupted before execution'}",
+                "links": {"job": job.get("url") or (record.get("run") or {}).get("url"), "logs_artifact": job.get("logs_artifact_url")},
+            }
+        )
+    summary = record.setdefault("summary", {})
+    counts = summary.setdefault("results", {})
+    missing = sum(row.get("status") == "not_run" for row in rows)
+    counts.pop("not_run", None)
+    if missing:
+        affected = [row for row in rows if row.get("status") == "not_run"]
+        record.setdefault("error_groups", []).append(
+            {
+                "signature": "infrastructure:job_failed_before_execution",
+                "category": "infrastructure",
+                "error_class": "job_failed_before_execution",
+                "exception_type": "InfrastructureError",
+                "exception_message": "Notebook execution never started",
+                "occurrences": missing,
+                "notebooks": sorted({row["notebook"] for row in affected}),
+                "configs": sorted({row["config_id"] for row in affected}),
+            }
+        )
+        normalized = expand_results(record)
+        for status in ("passed", "failed", "timeout", "error", "skipped"):
+            counts[status] = sum(row.get("status") == status for row in normalized)
+        counts["executed"] = sum(counts[status] for status in ("passed", "failed", "timeout", "error"))
+        rate = round(counts["passed"] / counts["executed"], 4) if counts["executed"] else None
+        counts["pass_rate"] = summary["pass_rate"] = summary["notebook_pass_rate"] = rate
+        planned = counts.get("planned", len(normalized))
+        summary["coverage"] = round(counts["executed"] / (planned - counts["skipped"]), 4) if planned > counts["skipped"] else None
+        notebooks = summary.setdefault("notebooks", {})
+        tested = {row["notebook"] for row in normalized if row.get("status") != "skipped"}
+        failing = {row["notebook"] for row in normalized if row.get("status") in {"failed", "timeout", "error"}}
+        untested = set(record.get("notebooks", {})) - tested
+        notebooks.update(tested=len(tested), untested=len(untested), failing=len(failing), failing_list=sorted(failing), untested_list=sorted(untested))
+    return record
 
 
 def catalog_from_report(report: dict) -> dict:

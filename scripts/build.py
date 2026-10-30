@@ -252,7 +252,7 @@ def make_latest(history: metrics.History, catalog: Optional[dict], repository: O
         "timeout_risk": risk,
         "error_groups": groups,
         "mttr_nights": metrics.mttr_nights(history, windows["trend"]),
-        "infra": {"jobs_failed_before_tests": metrics.jobs_failed_before_tests(record) if record else [], "not_run": entry.get("not_run")},
+        "infra": {"jobs_failed_before_tests": metrics.jobs_failed_before_tests(record) if record else []},
     }
 
 

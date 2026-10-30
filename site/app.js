@@ -8,10 +8,9 @@
     T: "timeout",
     E: "error",
     S: "skipped",
-    N: "not run",
     "-": "absent",
   };
-  const CODE = { passed: "P", failed: "F", timeout: "T", error: "E", skipped: "S", not_run: "N" };
+  const CODE = { passed: "P", failed: "F", timeout: "T", error: "E", skipped: "S" };
   const CAUSES = {
     notebook_changed: "Notebook changed",
     openvino_changed: "OpenVINO changed",
@@ -252,7 +251,7 @@
     ["failing_notebooks", "Failing notebooks", "count", -1, "Notebooks with at least one failed, timed-out or errored configuration."],
     ["new_failures", "New failures", "count", -1, "Notebook × configuration results failing now that passed the previous time they ran, or that have no earlier result."],
     ["fixed", "Fixed", "count", 1, "Notebook × configuration results passing now that failed the previous time they ran."],
-    ["executed", "Executed", "count", 1, "Notebook × configuration runs that actually ran (passed + failed + timeout + error)."],
+    ["executed", "Executed", "count", 1, "Passed + failed + timeout + error notebook × configuration runs, including infrastructure errors before execution."],
     ["skipped", "Skipped", "count", 0, "Planned notebook × configuration runs skipped on purpose (ignore lists, skip configs, device constraints)."],
     ["wall_clock_s", "Wall clock", "duration", -1, "Time from the start of the nightly run to the end of its last test job."],
   ];
@@ -355,14 +354,13 @@
   }
 
   function barChart(nights) {
-    // Two bars per night: executed results stacked by status (plus "not run" when a job stopped early), and skipped runs.
+    // Two bars per night: executed results stacked by status, and skipped runs.
     const bars = [
       [
         ["passed", "Passed", "P"],
         ["error", "Error", "E"],
         ["failed", "Failed", "F"],
         ["timeout", "Timeout", "T"],
-        ["not_run", "Not run", "N"],
       ],
       [["skipped", "Skipped", "S"]],
     ];
@@ -403,33 +401,55 @@
           group.append(svg("rect", { x: left, y: y(base + value), width, height: y(base) - y(base + value), class: `bar-${cls}` }));
           base += value;
         }
-        if (!base) group.append(svg("rect", { x: left, y: y(0) - 1, width, height: 1, class: "bar-N", opacity: 0.4 }));
+        if (!base) group.append(svg("rect", { x: left, y: y(0) - 1, width, height: 1, class: "bar-S", opacity: 0.4 }));
         if (nights.length <= 14) group.append(svg("text", { x: left + width / 2, y: y(base) - 3, class: "axis bar-total", "text-anchor": "middle" }, base));
       });
       if (night.test) group.append(svg("text", { x: x(index), y: top - 12, class: "test-mark", "text-anchor": "middle" }, "test"));
       const executed = count(night, "passed") + count(night, "failed") + count(night, "timeout") + count(night, "error");
-      const notRun = count(night, "not_run");
       const lines = [
-        `${date(night.date)}${night.test ? " (test run)" : ""} — executed ${executed}${notRun ? `, not run ${notRun}` : ""}, skipped ${count(night, "skipped")}`,
-        ...kinds.filter(([key]) => key !== "not_run" || notRun).map(([key, label]) => `${label}: ${count(night, key)}`),
+        `${date(night.date)}${night.test ? " (test run)" : ""} — executed ${executed}, skipped ${count(night, "skipped")}`,
+        ...kinds.map(([key, label]) => `${label}: ${count(night, key)}`),
       ];
       group.append(svg("title", null, lines.join("\n")));
       const href = safeUrl(night.url);
       root.append(href ? svg("a", { href, target: "_blank", rel: "noopener" }, group) : group);
     });
     xLabels(root, nights, x);
-    const anyNotRun = nights.some((night) => count(night, "not_run"));
     const legend = el(
       "div",
       { class: "legend" },
-      kinds.filter(([key]) => key !== "not_run" || anyNotRun).map(([, label, cls]) => el("span", null, el("span", { class: `swatch st-${cls}` }), label))
+      kinds.map(([, label, cls]) => el("span", null, el("span", { class: `swatch st-${cls}` }), label))
+    );
+    const breakdown = table(
+      ["Night", ...kinds.map(([, label]) => ({ text: label, attrs: { class: "num" } }))],
+      nights.map((night) => {
+        const total = sum(night, kinds);
+        const executed = ["passed", "error", "failed", "timeout"].reduce((total, key) => total + count(night, key), 0);
+        return el(
+          "tr",
+          null,
+          el("td", { class: "nowrap" }, link(night.url, date(night.date)), night.test ? " (test)" : ""),
+          kinds.map(([key]) => {
+            const ofExecuted = ["error", "failed", "timeout"].includes(key);
+            const denominator = ofExecuted ? executed : total;
+            return el(
+              "td",
+              { class: "num", title: `${count(night, key)} / ${denominator} ${ofExecuted ? "executed" : "planned"} runs` },
+              denominator ? pct(count(night, key) / denominator) : "n/a"
+            );
+          })
+        );
+      }),
+      { class: "status-percentages" }
     );
     return el(
       "div",
-      { class: "chart-card", title: "Left bar: executed runs (passed, error, failed, timeout; plus not run when a job stopped before its tests). Right bar: skipped runs." },
+      { class: "chart-card", title: "Left bar: passed, error (including infrastructure errors), failed and timeout. Right bar: skipped runs." },
       el("h3", null, "Executed and skipped notebook runs"),
       legend,
-      root
+      root,
+      el("p", { class: "muted small" }, "Error, Failed and Timeout: % of executed runs. Other categories: % of all planned runs. Rounded to one decimal."),
+      breakdown
     );
   }
 
@@ -859,21 +879,19 @@
   function renderInfra(latest) {
     const infra = latest.infra || {};
     const jobs = infra.jobs_failed_before_tests || [];
-    const notRun = isNum(infra.not_run) ? infra.not_run : 0;
     const box = document.getElementById("infra");
-    show("sec-infra", Boolean(jobs.length || notRun));
+    show("sec-infra", Boolean(jobs.length));
     box.textContent = "";
-    if (!jobs.length && !notRun) return;
+    if (!jobs.length) return;
     box.append(
-      el("p", { class: "muted" }, "Test jobs that stopped before running notebooks; their notebooks are counted as not run."),
+      el("p", { class: "muted" }, "Test jobs that stopped before running notebooks; affected notebook runs are counted as infrastructure errors."),
       jobs.length
         ? el(
             "ul",
             { class: "infra" },
             jobs.map((job) => el("li", null, link(job.url, job.name || job.config_id || "job"), job.failed_step ? ` — failed step: ${job.failed_step}` : ""))
           )
-        : null,
-      el("p", null, `Notebook runs not run: ${notRun}`)
+        : null
     );
   }
 
