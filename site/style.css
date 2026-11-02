@@ -109,6 +109,8 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .chart .bar-T { fill: var(--T); }
 .chart .bar-E { fill: var(--E); }
 .chart .bar-S { fill: var(--S); stroke: var(--S-fg); stroke-width: 0.5; }
+.chart .bar-SG { fill: var(--S-fg); }
+.st-SG { background: var(--S-fg); }
 .chart .test rect { opacity: 0.45; }
 .chart a:hover rect, .chart a:focus rect { opacity: 0.75; }
 .chart .bar-total { font-size: 9px; }

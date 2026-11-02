@@ -440,9 +440,15 @@ def night_entry(record: dict, test: bool = False) -> dict:
     summary = record.get("summary") or {}
     results = summary.get("results") or {}
     counted = {status: 0 for status in STATUS_CODES}
+    devices = {config["id"]: str(config.get("device") or "").lower() for config in record.get("configs") or []}
+    skipped_gpu = 0
     for row in expand_results(record):
         if row.get("status") in counted:
             counted[row["status"]] += 1
+        config_id = row.get("config_id") or ""
+        device = devices.get(config_id) or config_id.split("-", 1)[0].lower()
+        if row.get("status") == "skipped" and device in {"gpu", "igpu", "dgpu"}:
+            skipped_gpu += 1
 
     def count(name: str) -> Optional[int]:
         value = results.get(name)
@@ -475,6 +481,8 @@ def night_entry(record: dict, test: bool = False) -> dict:
         "timeout": count("timeout"),
         "error": count("error"),
         "skipped": count("skipped"),
+        "skipped_gpu": skipped_gpu,
+        "skipped_non_gpu": count("skipped") - skipped_gpu,
         "untested": (summary.get("notebooks") or {}).get("untested"),
         "failing_notebooks": failing_notebooks(record),
         "jobs_failed_before_tests": len(jobs_failed_before_tests(record)),

@@ -46,7 +46,7 @@ META_KEYS = {
     "warnings",
 }
 TREND_KEYS = set(
-    "date run_id attempt url sha short_sha conclusion test pass_rate notebook_pass_rate coverage executed passed failed timeout error skipped "
+    "date run_id attempt url sha short_sha conclusion test pass_rate notebook_pass_rate coverage executed passed failed timeout error skipped skipped_gpu skipped_non_gpu "
     "untested failing_notebooks jobs_failed_before_tests wall_clock_s compute_s".split()
 )
 LATEST_KEYS = set(

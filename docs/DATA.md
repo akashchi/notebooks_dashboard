@@ -93,6 +93,8 @@ Every file is JSON. All lists are ordered as described. Nights are ordered oldes
 ```
 
 This holds the last `windows.trend` official nights. In test-data mode the test run is appended with `"test": true`.
+
+Each night also contains `skipped_gpu` (GPU/iGPU/dGPU configuration skips) and `skipped_non_gpu` (all remaining skips). Their sum equals `skipped`. Device metadata is used when available, otherwise the configuration ID's device prefix is used. Both skip percentages use all planned runs as their denominator.
 Rates are numbers in [0, 1] or `null`.
 
 ### `latest.json`

@@ -376,6 +376,26 @@ def test_jobs_failed_before_tests():
     assert metrics.night_entry(record)["jobs_failed_before_tests"] == 1
 
 
+def test_skipped_counts_split_by_device():
+    record = make_run(
+        1,
+        "2026-10-01",
+        [
+            result(status="skipped"),
+            result(config_id="igpu-linux-py3.11", status="skipped"),
+            result(config_id="dgpu-linux-py3.11", status="skipped"),
+            result(config_id="npu-linux-py3.11", status="skipped"),
+            result(config_id="gpu-linux-py3.11"),
+            result(config_id="custom", status="skipped"),
+        ],
+    )
+    record["configs"] = [{"id": "custom", "device": "GPU"}]
+    entry = metrics.night_entry(record)
+    assert (entry["skipped"], entry["skipped_gpu"], entry["skipped_non_gpu"]) == (5, 3, 2)
+    empty = metrics.night_entry(make_run(2, "2026-10-02", [result()]))
+    assert empty["skipped_gpu"] == empty["skipped_non_gpu"] == 0
+
+
 def test_unstarted_results_become_infrastructure_errors_everywhere():
     from copy import deepcopy
     import build

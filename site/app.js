@@ -362,7 +362,10 @@
         ["failed", "Failed", "F"],
         ["timeout", "Timeout", "T"],
       ],
-      [["skipped", "Skipped", "S"]],
+      [
+        ["skipped_gpu", "Skipped (GPU)", "SG"],
+        ["skipped_non_gpu", "Skipped (non-GPU)", "S"],
+      ],
     ];
     const kinds = bars.flat();
     const count = (night, key) => (isNum(night[key]) ? night[key] : 0);
@@ -445,7 +448,7 @@
     );
     return el(
       "div",
-      { class: "chart-card", title: "Left bar: passed, error (including infrastructure errors), failed and timeout. Right bar: skipped runs." },
+      { class: "chart-card", title: "Left bar: passed, error (including infrastructure errors), failed and timeout. Right bar: skipped GPU and non-GPU runs." },
       el("h3", null, "Executed and skipped notebook runs"),
       legend,
       root,
