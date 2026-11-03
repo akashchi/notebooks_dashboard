@@ -142,7 +142,8 @@ The night shown on the page: the newest official night, or the test run in test-
   "error_groups": [{"signature": "...", "category": "...", "error_class": "...", "exception_type": "...", "exception_message": "...",
                     "occurrences": 3, "notebooks": ["..."], "configs": ["..."], "nights_seen": 5, "first_seen": "2026-10-01", "last_seen": "2026-10-12"}],
   "mttr_nights": 2.5,
-  "infra": {"jobs_failed_before_tests": [{"name": "...", "url": "...", "config_id": "...", "batch": "batch_0", "failed_step": "Install python dependencies"}]}
+  "infra": {"jobs_failed_before_tests": [{"name": "...", "url": "...", "config_id": "...", "batch": "batch_0", "failed_step": "Install python dependencies"}]},
+  "last_executed": {"configs": ["cpu-ubuntu-22.04-py3.11", "cpu-windows-2022-py3.12"], "notebooks": {"a/a.ipynb": "PF", "b/b.ipynb": "-T"}}
 }
 ```
 
@@ -162,6 +163,19 @@ Details:
 - **`timeout_risk`**: the median of the last 7 executed durations (including this night) is ≥ 0.8 × `timeout_s`.
 - **`error_groups`**: the night's groups, enriched with `nights_seen`, `first_seen` and `last_seen` (the signature's occurrences across the official history).
 - **`mttr_nights`**: mean length in nights of failing streaks that ended (fixed) within the trend window; null if none.
+- **`last_executed`**: per notebook, the last executed status (`P`, `F`, `T`, `E`) up to and including this night, one character per entry of `configs` (sorted), `-` when that notebook × configuration has not been executed yet. Notebooks without any executed result are omitted. The page uses it to compare a later night with this one (see `nights/` below).
+
+### `nights/<run_id>.json`
+
+One document per night of `trend.json` (the last `windows.trend` official nights and, in test-data mode, the test run), in the format of `latest.json` and computed as of that night: KPIs, changes and `new` flags compare it with the night before it, and attention, flaky, duration regressions, timeout risk and error groups only use nights up to and including it. The document of the shown night equals `latest.json`. `mttr_nights` is the same in all documents.
+
+The page loads these files when a night is selected in the selector at the top, and compares the selected night with any earlier selected night (`site/compare.js`, the same rules as `metrics.changes()`):
+
+- KPI deltas are the selected night's values minus those of the earlier night.
+- `changes` compares each executed result of the selected night with the earlier night's `last_executed` status. A failure is new when that status is `P` or missing (`previous_status: null`); a pass is fixed when that status is `F`, `T` or `E`.
+- Attention items and notebooks are flagged `new` from these changes.
+
+The selection is kept in the page URL: `?night=<run_id>&vs=<run_id>` (omitted for the newest night compared with the night before it).
 
 ### `history.json`
 

@@ -8,6 +8,7 @@ published at **https://akashchi.github.io/notebooks_dashboard/**.
 ## What it shows
 
 - **Latest nightly:** notebook pass rate, failing notebooks, new failures, fixed notebooks, executed and skipped notebook runs and wall clock, each with the change since the previous night.
+- **Night selector** at the top: shows any night of the trend window and compares it with any earlier night, both chosen by date. KPI deltas, new failures and fixes, and the NEW flags then refer to the chosen pair. The selection is kept in the URL (`?night=<run_id>&vs=<run_id>`), and both nights are marked in the trend charts.
 - **Trends** over the last 90 nights: notebook pass rate, and two bars per night: executed notebook runs stacked by status (passed, error, failed, timeout) and skipped runs stacked into GPU (iGPU/dGPU) and non-GPU segments. The percentage table also shows both skip categories. Planned executions that never started are classified as infrastructure errors, including in historical data.
   A table below the bars shows each night's Error, Failed and Timeout as percentages of executed runs; other categories use all planned runs, including skipped. Percentages are rounded to one decimal with counts alongside, e.g. `1.6% (11)`; hovering shows the count and denominator. A zero denominator shows `n/a`.
 - **Needs attention:** every failing notebook × configuration with the night it started failing and the streak length, the last passing night, a diff link between the two commits, a probable cause (notebook changed / OpenVINO changed / packages changed / external or flaky), the error, and links to the job, logs and source.
@@ -25,7 +26,7 @@ openvino_notebooks: treon_nightly.yml ──► artifact "nightly-dashboard-data
 this repo: .github/workflows/update.yml ────────────┘
   1. pytest
   2. scripts/ingest.py   download new official nights → data/runs/<date>_<run_id>.json (compact) + data/catalog.json, committed
-  3. scripts/build.py    cross-night metrics → _site/data/{meta,trend,latest,history}.json + site/ (static HTML/CSS/JS)
+  3. scripts/build.py    cross-night metrics → _site/data/{meta,trend,latest,history}.json + data/nights/<run_id>.json + site/ (static HTML/CSS/JS)
   4. deploy to GitHub Pages
 ```
 
@@ -65,7 +66,7 @@ python scripts/build.py --data_dir .cache/local --cache_dir .cache/local --out _
 | ------------------ | ------------------------------------------------------------------------------ |
 | `dashboard.json` | Source repository, workflow, artifact, official branch/event, time windows     |
 | `scripts/`       | `github_api.py`, `ingest.py`, `compact.py`, `metrics.py`, `build.py`, `local_history.py` |
-| `site/`          | The page:`index.html`, `app.js`, `style.css`, `favicon.svg`            |
+| `site/`          | The page:`index.html`, `app.js`, `compare.js`, `style.css`, `favicon.svg` |
 | `data/`          | Stored history (committed by the workflow)                                     |
 | `docs/DATA.md`   | Stored and site data formats, metric definitions                               |
 | `tests/`         | pytest suite and fixtures                                                      |

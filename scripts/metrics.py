@@ -129,20 +129,22 @@ def previous_executed(points: list, night: int) -> Optional[dict]:
     return None
 
 
-def changes(history: History, night: int) -> dict:
-    """New failures and fixes of `night` against the previous executed status of each (notebook, config).
+def changes(history: History, night: int, baseline: Optional[int] = None) -> dict:
+    """New failures and fixes of `night` against the last executed status of each (notebook, config) up to and
+    including the `baseline` night (default: the night before `night`, i.e. the previous executed status).
 
-    A failure without any earlier executed result (newly added or previously only skipped) is new too,
-    with `previous_status` null, unless `night` is the first night of the history.
+    A failure without any executed result up to the baseline (newly added or previously only skipped) is new too,
+    with `previous_status` null, unless there is no baseline night (`night` is the first night of the history).
     """
+    baseline = night - 1 if baseline is None else baseline
     new_failures, fixed = [], []
     for (notebook, config_id), points in sorted(history.series.items()):
         current = point_at(points, night)
         if current is None or current["status"] not in EXECUTED:
             continue
-        previous = previous_executed(points, night)
+        previous = previous_executed(points, baseline + 1)
         if previous is None:
-            if current["status"] in FAILING and night > 0:
+            if current["status"] in FAILING and baseline >= 0:
                 new_failures.append(
                     {"notebook": notebook, "config_id": config_id, "status": current["status"], "failure_id": current["failure_id"], "previous_status": None}
                 )
@@ -501,6 +503,21 @@ def kpi(value, previous, has_previous: bool = True) -> dict:
 
 def _is_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def last_executed(history: History, night: int) -> dict:
+    """{"configs", "notebooks"}: per notebook, one code per config (in "configs" order) of its last executed status
+    up to and including `night` ("-" if none). Lets the page compare any later night with `night` like changes()."""
+    codes: dict = {}
+    for (notebook, config_id), points in history.series.items():
+        point = previous_executed(points, night + 1)
+        if point is not None:
+            codes.setdefault(notebook, {})[config_id] = point["code"]
+    configs = sorted({config_id for by_config in codes.values() for config_id in by_config})
+    return {
+        "configs": configs,
+        "notebooks": {notebook: "".join(by_config.get(config_id, ABSENT_CODE) for config_id in configs) for notebook, by_config in sorted(codes.items())},
+    }
 
 
 def status_matrix(history: History, first_night: int) -> dict:

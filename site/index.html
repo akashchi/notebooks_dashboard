@@ -7,6 +7,7 @@
   <meta name="description" content="Nightly test results of the OpenVINO notebooks">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
+  <script src="compare.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -14,6 +15,7 @@
     <div class="wrap">
       <h1>OpenVINO Notebooks — Nightly</h1>
       <p id="run-info" class="run-info" aria-live="polite">Loading…</p>
+      <form id="compare" class="compare" hidden></form>
     </div>
   </header>
   <div id="banner" class="wrap banner" role="status" hidden></div>
@@ -29,7 +31,7 @@
       <div id="attention"></div>
     </section>
     <section id="sec-changes" hidden>
-      <h2>Changes since the previous night</h2>
+      <h2 id="changes-title">Changes since the previous night</h2>
       <div id="changes" class="changes"></div>
     </section>
     <section id="sec-health" hidden>

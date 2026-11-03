@@ -5,7 +5,8 @@ Usage: python scripts/build.py [--config dashboard.json] [--data_dir data] [--ca
 Inputs are the stored history (data/runs/*.json, data/catalog.json) and, when ingest.py cached them, the test data
 (.cache/test_run.json + test_run_meta.json, optional test_catalog.json). With test data, the test run is shown after the
 official nights. Without any night, all four data files are still written with empty lists and null values
-(latest.json has "run": null) so that the page can show that there is no data yet. Stdlib only.
+(latest.json has "run": null) so that the page can show that there is no data yet. Every night of trend.json also gets a
+night document data/nights/<run_id>.json (latest.json as of that night) for the page's night selector. Stdlib only.
 """
 
 import argparse
@@ -204,8 +205,14 @@ def notebook_rows(record: Optional[dict], catalog: Optional[dict], flaky: list, 
     return rows
 
 
-def make_latest(history: metrics.History, catalog: Optional[dict], repository: Optional[str], windows: dict) -> dict:
-    night = history.displayed
+def night_indexes(history: metrics.History, windows: dict) -> list:
+    """Nights with a night document: the nights of trend.json (the last `windows.trend` official nights and the test run)."""
+    official = len(history.official)
+    return list(range(official - len(_last(history.official, windows["trend"])), len(history.runs)))
+
+
+def make_night(history: metrics.History, catalog: Optional[dict], repository: Optional[str], windows: dict, night: Optional[int]) -> dict:
+    """The page document of one night, compared with the night before it (latest.json is the one of the shown night)."""
     record = history.runs[night] if night is not None else None
     previous = history.runs[night - 1] if night else None
     entry = metrics.night_entry(record) if record else {}
@@ -253,7 +260,21 @@ def make_latest(history: metrics.History, catalog: Optional[dict], repository: O
         "error_groups": groups,
         "mttr_nights": metrics.mttr_nights(history, windows["trend"]),
         "infra": {"jobs_failed_before_tests": metrics.jobs_failed_before_tests(record) if record else []},
+        "last_executed": metrics.last_executed(history, night) if record else {"configs": [], "notebooks": {}},
     }
+
+
+def make_latest(history: metrics.History, catalog: Optional[dict], repository: Optional[str], windows: dict) -> dict:
+    return make_night(history, catalog, repository, windows, history.displayed)
+
+
+def make_nights(history: metrics.History, catalog: Optional[dict], repository: Optional[str], windows: dict, latest: dict) -> dict:
+    """{run_id (str): night document} for every night of trend.json; the shown night reuses `latest`."""
+    nights = {}
+    for night in night_indexes(history, windows):
+        document = latest if night == history.displayed else make_night(history, catalog, repository, windows, night)
+        nights[str(history.refs[night]["run_id"])] = document
+    return nights
 
 
 def compute(
@@ -266,15 +287,18 @@ def compute(
     now: Union[None, str, datetime] = None,
     dashboard_repository: Optional[str] = None,
 ) -> dict:
-    """The four site data documents {"meta", "trend", "latest", "history"} (pure: no file access)."""
+    """The four site data documents {"meta", "trend", "latest", "history"} plus "nights" ({run_id: night document},
+    written to data/nights/<run_id>.json) (pure: no file access)."""
     windows = windows_of(config)
     repository = (config.get("source") or {}).get("repository")
     history = metrics.History(records, test_run)
+    latest = make_latest(history, catalog, repository, windows)
     return {
         "meta": make_meta(config, history, test_data if test_run is not None else None, warnings or [], _timestamp(now), dashboard_repository),
         "trend": make_trend(history, windows),
-        "latest": make_latest(history, catalog, repository, windows),
+        "latest": latest,
         "history": make_history(history, windows),
+        "nights": make_nights(history, catalog, repository, windows, latest),
     }
 
 
@@ -306,6 +330,10 @@ def write_site(documents: dict, site_dir: Optional[Union[str, Path]], out_dir: U
     data_dir.mkdir(exist_ok=True)
     for name in DATA_FILES:
         _write_json(data_dir / f"{name}.json", documents[name])
+    nights_dir = data_dir / "nights"
+    nights_dir.mkdir(exist_ok=True)
+    for run_id, document in (documents.get("nights") or {}).items():
+        _write_json(nights_dir / f"{run_id}.json", document)
     return out
 
 

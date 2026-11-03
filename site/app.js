@@ -1,6 +1,7 @@
 "use strict";
 
-// OpenVINO notebooks nightly dashboard. Renders data/{meta,trend,latest,history}.json (see docs/DATA.md).
+// OpenVINO notebooks nightly dashboard. Renders data/{meta,trend,latest,history}.json and, for the night selected at
+// the top of the page, data/nights/<run_id>.json compared with any earlier night (see docs/DATA.md, compare.js).
 (function () {
   const STATUS = {
     P: "passed",
@@ -262,7 +263,8 @@
     return isNum(value) ? String(value) : "n/a";
   }
 
-  function renderKpis(kpis) {
+  function renderKpis(kpis, previous) {
+    const since = previous ? `change since ${date(previous.date)}` : "change since the previous night";
     const box = show("kpis", true);
     box.textContent = "";
     for (const [key, label, kind, direction, help] of KPIS) {
@@ -285,7 +287,7 @@
           { class: "kpi", title: help, tabindex: "0" },
           el("div", { class: "kpi-label" }, label),
           el("div", { class: "kpi-value" }, formatKpi(kind, kpi.value)),
-          el("div", { class: cls, title: delta ? "change since the previous night" : null }, delta)
+          el("div", { class: cls, title: delta ? since : null }, delta)
         )
       );
     }
@@ -308,7 +310,14 @@
     });
   }
 
-  function lineChart(nights) {
+  // Vertical markers of the selected night ("night") and the night it is compared with ("base").
+  function marker(root, x, index, kind) {
+    if (index < 0) return;
+    const label = kind === "night" ? "selected night" : "compared with";
+    root.append(svg("line", { x1: x, x2: x, y1: CHART.top, y2: CHART.height - CHART.bottom, class: `mark mark-${kind}` }, svg("title", null, label)));
+  }
+
+  function lineChart(nights, marks) {
     const series = [
       ["notebook_pass_rate", "Notebook pass rate", "s2"],
     ];
@@ -324,6 +333,8 @@
         svg("text", { x: CHART.left - 6, y: y(value) + 4, class: "axis", "text-anchor": "end" }, Math.round(value * 100) + "%")
       );
     }
+    marker(root, xScale(nights.length)(marks.base), marks.base, "base");
+    marker(root, xScale(nights.length)(marks.night), marks.night, "night");
     for (const [key, label, cls] of series) {
       let path = "";
       let pen = "M";
@@ -353,7 +364,7 @@
     return el("div", { class: "chart-card" }, el("h3", null, "Notebook pass rate"), legend, root);
   }
 
-  function barChart(nights) {
+  function barChart(nights, marks) {
     // Two bars per night: executed results stacked by status, and skipped runs.
     const bars = [
       [
@@ -393,6 +404,8 @@
         svg("text", { x: CHART.left - 6, y: y(value) + 4, class: "axis", "text-anchor": "end" }, value)
       );
     }
+    marker(root, x(marks.base), marks.base, "base");
+    marker(root, x(marks.night), marks.night, "night");
     nights.forEach((night, index) => {
       const group = svg("g", { class: night.test ? "test" : null });
       bars.forEach((bar, barIndex) => {
@@ -425,12 +438,13 @@
     );
     const breakdown = table(
       ["Night", ...kinds.map(([, label]) => ({ text: label, attrs: { class: "num" } }))],
-      nights.map((night) => {
+      nights.map((night, index) => {
         const total = sum(night, kinds);
         const executed = ["passed", "error", "failed", "timeout"].reduce((total, key) => total + count(night, key), 0);
+        const selected = index === marks.night ? "row-night" : index === marks.base ? "row-base" : null;
         return el(
           "tr",
-          null,
+          { class: selected },
           el("td", { class: "nowrap" }, link(night.url, date(night.date)), night.test ? " (test)" : ""),
           kinds.map(([key]) => {
             const ofExecuted = ["error", "failed", "timeout"].includes(key);
@@ -457,7 +471,7 @@
     );
   }
 
-  function renderTrends(nights) {
+  function renderTrends(nights, selection) {
     const box = document.getElementById("trends");
     show("sec-trends", true);
     box.textContent = "";
@@ -465,7 +479,9 @@
       box.append(el("p", { class: "none" }, "No nights yet."));
       return;
     }
-    box.append(lineChart(nights), barChart(nights));
+    const indexOf = (runId) => nights.findIndex((night) => String(night.run_id) === String(runId));
+    const marks = { night: indexOf(selection && selection.night), base: indexOf(selection && selection.base) };
+    box.append(lineChart(nights, marks), barChart(nights, marks));
   }
 
   // ---------------------------------------------------------------- tables
@@ -535,6 +551,8 @@
   function renderChanges(latest, catalog) {
     const box = document.getElementById("changes");
     show("sec-changes", true);
+    const previous = latest.previous;
+    document.getElementById("changes-title").textContent = previous ? `Changes since ${date(previous.date)}` : "Changes since the previous night";
     box.textContent = "";
     const changes = latest.changes || {};
     const column = (title, items, render) =>
@@ -940,30 +958,175 @@
     }
   }
 
+  // ---------------------------------------------------------------- night selection
+  const nightCache = new Map();
+
+  function nightDocument(runId) {
+    const key = String(runId);
+    if (!nightCache.has(key)) {
+      const promise = fetch(`data/nights/${encodeURIComponent(key)}.json`, { cache: "no-cache" }).then((response) => {
+        if (!response.ok) throw new Error(`data/nights/${key}.json: HTTP ${response.status}`);
+        return response.json();
+      });
+      promise.catch(() => nightCache.delete(key));
+      nightCache.set(key, promise);
+    }
+    return nightCache.get(key);
+  }
+
+  function nightLabel(night, nights) {
+    const sameDate = nights.filter((other) => other.date === night.date).length > 1;
+    return `${date(night.date)}${night.test ? " (test run)" : ""}${sameDate ? ` · run ${night.run_id}` : ""}${night.short_sha ? ` · ${night.short_sha}` : ""}`;
+  }
+
+  // {night, base}: run ids of the selected night and of the earlier night it is compared with (null if none).
+  function normalizeSelection(nights, wanted) {
+    const ids = nights.map((night) => String(night.run_id));
+    let index = ids.indexOf(String(wanted.night));
+    if (index < 0) index = ids.length - 1;
+    let base = ids.indexOf(String(wanted.base));
+    if (base < 0 || base >= index) base = index - 1;
+    return { night: ids[index], base: base >= 0 ? ids[base] : null };
+  }
+
+  function selectionFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return { night: params.get("night"), base: params.get("vs") };
+  }
+
+  function writeUrl(selection, nights) {
+    const params = new URLSearchParams(window.location.search);
+    const newest = normalizeSelection(nights, {});
+    const isDefault = selection.night === newest.night && selection.base === newest.base;
+    params.delete("night");
+    params.delete("vs");
+    if (!isDefault) {
+      params.set("night", selection.night);
+      if (selection.base) params.set("vs", selection.base);
+    }
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? "?" + query : ""}${window.location.hash}`);
+  }
+
+  function renderSelector(nights, selection, onChange) {
+    const form = show("compare", nights.length > 1);
+    form.textContent = "";
+    if (nights.length <= 1) return;
+    const nightIndex = nights.findIndex((night) => String(night.run_id) === selection.night);
+    const option = (night, selected) => el("option", { value: String(night.run_id), selected }, nightLabel(night, nights));
+    const newestFirst = (items) => items.map((night, index) => [night, index]).reverse();
+    const nightSelect = el(
+      "select",
+      { id: "select-night", "aria-label": "Night to show" },
+      newestFirst(nights).map(([night, index]) => option(night, index === nightIndex))
+    );
+    const earlier = newestFirst(nights).filter(([, index]) => index < nightIndex);
+    const baseSelect = el(
+      "select",
+      { id: "select-base", "aria-label": "Night to compare with", disabled: earlier.length ? null : true },
+      earlier.length ? earlier.map(([night]) => option(night, String(night.run_id) === selection.base)) : el("option", { value: "" }, "no earlier night")
+    );
+    const latestButton = el(
+      "button",
+      { type: "button", class: "chip", title: "Show the newest night compared with the night before it", disabled: nightIndex === nights.length - 1 && selection.base === normalizeSelection(nights, {}).base ? true : null },
+      "Latest vs previous"
+    );
+    nightSelect.addEventListener("change", () => onChange({ night: nightSelect.value, base: selection.base }));
+    baseSelect.addEventListener("change", () => onChange({ night: selection.night, base: baseSelect.value }));
+    latestButton.addEventListener("click", () => onChange({}));
+    form.addEventListener("submit", (event) => event.preventDefault());
+    append(form, [
+      el("label", { for: "select-night" }, "Night"),
+      nightSelect,
+      el("label", { for: "select-base" }, "compared with"),
+      baseSelect,
+      latestButton,
+    ]);
+  }
+
+  // ---------------------------------------------------------------- main
+  function guarded(name, fn) {
+    try {
+      fn();
+    } catch (error) {
+      console.error(`Rendering ${name} failed`, error);
+      const message = document.getElementById("message");
+      message.hidden = false;
+      message.classList.add("error");
+      message.textContent = `Some sections could not be rendered (${name}: ${error.message}).`;
+    }
+  }
+
+  function renderNight(meta, night, history) {
+    configsById = Object.fromEntries((night.configs || []).map((config) => [config.id, config]));
+    const catalog = Object.fromEntries((night.notebooks || []).map((notebook) => [notebook.path, notebook]));
+    guarded("header", () => renderHeader(meta, night));
+    guarded("key metrics", () => renderKpis(night.kpis || {}, night.previous));
+    guarded("needs attention", () => renderAttention(night, catalog));
+    guarded("changes", () => renderChanges(night, catalog));
+    guarded("notebook health", () => renderHealth(night, history, catalog));
+    guarded("flaky and slow", () => renderSlow(night, catalog));
+    guarded("error groups", () => renderErrors(night));
+    guarded("infrastructure", () => renderInfra(night));
+  }
+
   function render(data) {
     const meta = data.meta || {};
     const latest = data.latest || {};
     const trend = data.trend || {};
     const history = data.history || {};
-    configsById = Object.fromEntries((latest.configs || []).map((config) => [config.id, config]));
-    const catalog = Object.fromEntries((latest.notebooks || []).map((notebook) => [notebook.path, notebook]));
+    const nights = trend.nights || [];
 
-    guarded("header", () => renderHeader(meta, latest));
     guarded("banner", () => renderBanner(meta, latest));
     guarded("footer", () => renderFooter(meta));
     if (!latest.run) {
+      guarded("header", () => renderHeader(meta, latest));
       const message = show("message", true);
       message.textContent = "No nightly data yet. The dashboard updates daily after the nightly tests.";
       return;
     }
-    guarded("key metrics", () => renderKpis(latest.kpis || {}));
-    guarded("trends", () => renderTrends(trend.nights || []));
-    guarded("needs attention", () => renderAttention(latest, catalog));
-    guarded("changes", () => renderChanges(latest, catalog));
-    guarded("notebook health", () => renderHealth(latest, history, catalog));
-    guarded("flaky and slow", () => renderSlow(latest, catalog));
-    guarded("error groups", () => renderErrors(latest));
-    guarded("infrastructure", () => renderInfra(latest));
+    nightCache.set(String(latest.run.id), Promise.resolve(latest));
+    // Nights without a night document (older builds) can't be selected; the latest one always can.
+    const selectable = nights.some((night) => String(night.run_id) === String(latest.run.id)) ? nights : [];
+    let current = null;
+    let request = 0;
+
+    function select(wanted) {
+      const selection = selectable.length ? normalizeSelection(selectable, wanted) : { night: String(latest.run.id), base: null };
+      const ticket = ++request;
+      guarded("night selector", () => renderSelector(selectable, selection, select));
+      const form = document.getElementById("compare");
+      form.setAttribute("aria-busy", "true");
+      form.querySelectorAll("select").forEach((select) => (select.disabled = true));
+      // latest.json already compares the newest night with the night before it.
+      const isLatestPair = selection.night === String(latest.run.id) && (!selection.base || String((latest.previous || {}).run_id) === selection.base);
+      Promise.all([nightDocument(selection.night), selection.base && !isLatestPair ? nightDocument(selection.base) : null])
+        .then(([night, base]) => {
+          if (ticket !== request) return;
+          const shown = isLatestPair ? latest : window.NightCompare.withBaseline(night, base);
+          current = selection;
+          if (selectable.length) writeUrl(selection, selectable);
+          const message = document.getElementById("message");
+          message.hidden = true;
+          message.classList.remove("error");
+          guarded("night selector", () => renderSelector(selectable, selection, select));
+          guarded("trends", () => renderTrends(nights, selection));
+          renderNight(meta, shown, history);
+        })
+        .catch((error) => {
+          if (ticket !== request) return;
+          console.error(error);
+          const message = show("message", true);
+          message.classList.add("error");
+          message.textContent = `Could not load the selected night (${error.message}).`;
+          guarded("night selector", () => renderSelector(selectable, current || normalizeSelection(selectable, {}), select));
+        })
+        .finally(() => {
+          if (ticket === request) form.removeAttribute("aria-busy");
+        });
+    }
+
+    select(selectionFromUrl());
   }
 
   async function load() {

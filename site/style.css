@@ -63,6 +63,16 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .top { border-bottom: 1px solid var(--border); padding: 1rem 0 0.75rem; }
 .run-info { margin: 0; color: var(--muted); }
 .run-info > * + *::before { content: " · "; color: var(--muted); }
+.compare { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.6rem; }
+.compare label { color: var(--muted); }
+.compare select { padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+.compare[aria-busy="true"] { opacity: 0.6; }
+.chip:disabled { opacity: 0.5; cursor: default; }
+.mark { stroke-width: 2; stroke-dasharray: 4 3; }
+.mark-night { stroke: var(--fg); }
+.mark-base { stroke: var(--line-3); }
+tr.row-night td { background: color-mix(in srgb, var(--P) 22%, var(--bg)); font-weight: 600; }
+tr.row-base td { background: color-mix(in srgb, var(--P) 12%, var(--bg)); }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .message { margin: 2rem 0; padding: 1rem; border: 1px dashed var(--border); border-radius: 8px; text-align: center; color: var(--muted); }

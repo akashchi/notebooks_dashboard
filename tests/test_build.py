@@ -50,7 +50,7 @@ TREND_KEYS = set(
     "untested failing_notebooks jobs_failed_before_tests wall_clock_s compute_s".split()
 )
 LATEST_KEYS = set(
-    "test run summary previous kpis configs notebooks failures attention changes flaky duration_regressions timeout_risk error_groups mttr_nights infra".split()
+    "test run summary previous kpis configs notebooks failures attention changes flaky duration_regressions timeout_risk error_groups mttr_nights infra last_executed".split()
 )
 KPI_NAMES = ["notebook_pass_rate", "failing_notebooks", "new_failures", "fixed", "executed", "skipped", "wall_clock_s"]
 NOTEBOOK_KEYS = {"path", "title", "dir", "tags", "links", "last_modified", "status", "worst", "failing", "flaky", "new_failure"}
@@ -114,6 +114,9 @@ def check_latest(latest: dict) -> None:
     assert all(set(item) == {"notebook", "config_id", "median_s", "timeout_s", "ratio"} for item in latest["timeout_risk"])
     assert all({"signature", "occurrences", "nights_seen", "first_seen", "last_seen"} <= set(group) for group in latest["error_groups"])
     assert set(latest["infra"]) == {"jobs_failed_before_tests"}
+    last = latest["last_executed"]
+    assert set(last) == {"configs", "notebooks"} and last["configs"] == sorted(set(last["configs"]))
+    assert all(len(codes) == len(last["configs"]) and set(codes) <= set("PFTE-") and set(codes) != {"-"} for codes in last["notebooks"].values())
     assert all(set(job) == {"name", "url", "config_id", "batch", "failed_step"} for job in latest["infra"]["jobs_failed_before_tests"])
 
 
@@ -132,6 +135,13 @@ def check_all(files: dict) -> None:
     check_trend(files["trend"])
     check_latest(files["latest"])
     check_history(files["history"])
+    if "nights" in files:
+        assert list(files["nights"]) == [str(night["run_id"]) for night in files["trend"]["nights"]]
+        for run_id, night in files["nights"].items():
+            check_latest(night)
+            assert str(night["run"]["id"]) == run_id
+        if files["latest"]["run"] is not None:
+            assert files["nights"][str(files["latest"]["run"]["id"])] == files["latest"]
 
 
 def config(**windows) -> dict:
@@ -175,6 +185,10 @@ def run_build(tmp_path, cfg=None) -> dict:
     out = tmp_path / "_site"
     documents = build.build(cfg or config(), tmp_path / "data", tmp_path / ".cache", tmp_path / "site", out, now=NOW)
     files = {name: json.loads((out / "data" / f"{name}.json").read_text(encoding="utf-8")) for name in build.DATA_FILES}
+    nights_dir = out / "data" / "nights"
+    nights = {path.stem: json.loads(path.read_text(encoding="utf-8")) for path in nights_dir.glob("*.json")}
+    assert set(nights) == set(documents["nights"])
+    files["nights"] = {run_id: nights[run_id] for run_id in documents["nights"]}
     assert files == documents
     return files
 
@@ -269,6 +283,21 @@ def test_build_official_history(tmp_path):
     assert history["notebooks"][YOLO]["all"] == "TTTTT" and history["notebooks"][YOLO]["cfg"][W11] == "PPPPP"
     assert set(history["notebooks"]) == {result["notebook"] for result in reports[-1]["results"]}
 
+    nights = files["nights"]
+    assert list(nights) == ["1000", "1001", "1002", "1003", "1004"]
+    assert nights["1000"]["previous"] is None and nights["1000"]["kpis"]["failing_notebooks"]["delta"] is None
+    night = nights["1003"]
+    assert night["previous"] == {"date": "2026-10-03", "run_id": 1002, "url": run_url(1002)}
+    assert night["changes"] == {
+        "new_failures": [{"notebook": ASYNC, "config_id": L13, "status": "failed", "failure_id": f"{L13}/{ASYNC}", "previous_status": "passed"}],
+        "fixed": [],
+    }
+    assert [(item["notebook"], item["config_id"], item["new"]) for item in night["attention"]][0] == (ASYNC, L13, True)
+    assert {item["notebook"] for item in night["attention"]} == {ASYNC, HELLO_DETECTION, YOLO}
+    assert night["last_executed"]["configs"] == sorted([*LINUX, *WINDOWS])
+    assert night["last_executed"]["notebooks"][ASYNC] == "PPFPPP" and night["last_executed"]["notebooks"][HELLO_DETECTION] == "FFFFFF"
+    assert sorted(path.name for path in (tmp_path / "_site" / "data" / "nights").iterdir()) == [f"{run_id}.json" for run_id in nights]
+
 
 def test_trend_and_matrix_windows(tmp_path):
     store(tmp_path / "data", five_nights())
@@ -279,6 +308,8 @@ def test_trend_and_matrix_windows(tmp_path):
     assert files["history"]["notebooks"][ASYNC]["cfg"][L13] == "FF"
     assert files["meta"]["official_nights"] == 5 and files["meta"]["windows"] == {"trend": 3, "matrix": 2, "flaky": 14}
     assert files["latest"]["mttr_nights"] == 3.0
+    assert list(files["nights"]) == ["1002", "1003", "1004"]
+    assert files["nights"]["1002"]["previous"]["run_id"] == 1001
 
 
 def test_test_data_without_official_nights(tmp_path):
@@ -432,7 +463,8 @@ def test_main_writes_the_site_and_replaces_the_previous_build(tmp_path, capsys):
     args = ["--config", str(tmp_path / "dashboard.json"), "--data_dir", str(tmp_path / "data"), "--cache_dir", str(tmp_path / ".cache")]
     assert build.main([*args, "--site_dir", str(site), "--out", str(out), "--now", NOW]) == 0
     assert (out / "index.html").read_text(encoding="utf-8") == "<html></html>" and (out / "app.js").exists() and not (out / "stale.txt").exists()
-    assert sorted(path.name for path in (out / "data").iterdir()) == ["history.json", "latest.json", "meta.json", "trend.json"]
+    assert sorted(path.name for path in (out / "data").iterdir()) == ["history.json", "latest.json", "meta.json", "nights", "trend.json"]
+    assert sorted(path.name for path in (out / "data" / "nights").iterdir()) == ["1000.json", "1001.json"]
     assert "2 official night(s)" in capsys.readouterr().out
 
 

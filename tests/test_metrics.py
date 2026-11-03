@@ -77,6 +77,25 @@ def test_changes_without_an_earlier_result_are_new_except_on_the_first_night():
     assert metrics.changes(first, first.displayed)["new_failures"] == []
 
 
+def test_changes_against_an_earlier_baseline_night():
+    history = history_of({k("a"): "PSFF", k("b"): "FPPP", k("c"): "SSPF", k("d"): "-FPP", k("e"): "PFSP"})
+    changes = metrics.changes(history, 3, baseline=0)
+    assert [(item["notebook"], item["previous_status"]) for item in changes["new_failures"]] == [("a/a.ipynb", "passed"), ("c/c.ipynb", None)]
+    assert changes["fixed"] == [{"notebook": "b/b.ipynb", "config_id": CFG}]
+    # Last executed status up to and including the baseline: e failed in night 1 and wasn't executed in night 2.
+    assert metrics.changes(history, 3, baseline=2)["fixed"] == [{"notebook": "e/e.ipynb", "config_id": CFG}]
+    assert metrics.changes(history, 3, baseline=2) == metrics.changes(history, 3)
+
+
+def test_last_executed():
+    history = history_of({k("a"): "PSF", k("b"): "-S-", k("c"): "SFS"})
+    assert metrics.last_executed(history, 0) == {"configs": [CFG], "notebooks": {"a/a.ipynb": "P"}}
+    assert metrics.last_executed(history, 1) == {"configs": [CFG], "notebooks": {"a/a.ipynb": "P", "c/c.ipynb": "F"}}
+    assert metrics.last_executed(history, 2) == {"configs": [CFG], "notebooks": {"a/a.ipynb": "F", "c/c.ipynb": "F"}}
+    two = history_of({k("a"): "P", k("a", CFG2): "T", k("b", CFG2): "F"})
+    assert metrics.last_executed(two, 0) == {"configs": [CFG, CFG2], "notebooks": {"a/a.ipynb": "PT", "b/b.ipynb": "-F"}}
+
+
 def test_streak_ignores_skipped_not_run_and_absent_nights():
     shas = [sha_for(night) for night in range(8)]
     history = history_of({KEY: "PPFSF-NF"}, shas=shas)
