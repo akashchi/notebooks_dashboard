@@ -167,6 +167,13 @@
    "attempt": 1,
    "file": "runs/2026-11-09_42540244557.json",
    "nightly_date": "2026-11-09"
+  },
+  "42727913139": {
+   "artifact_created_at": "2026-11-10T03:36:09Z",
+   "artifact_id": 13732204718,
+   "attempt": 1,
+   "file": "runs/2026-11-10_42727913139.json",
+   "nightly_date": "2026-11-10"
   }
  }
 }
