@@ -261,6 +261,8 @@ def make_night(history: metrics.History, catalog: Optional[dict], repository: Op
         "mttr_nights": metrics.mttr_nights(history, windows["trend"]),
         "infra": {"jobs_failed_before_tests": metrics.jobs_failed_before_tests(record) if record else []},
         "last_executed": metrics.last_executed(history, night) if record else {"configs": [], "notebooks": {}},
+        "skips": metrics.skip_reasons(record) if record else [],
+        "never_executed": metrics.never_executed(history, night) if record else [],
     }
 
 

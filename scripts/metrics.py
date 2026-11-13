@@ -4,6 +4,7 @@ Stdlib only, pure functions over compact run records (data/runs/*.json). A `Hist
 oldest -> newest and, in test-data mode, the test run appended after them as the last (displayed) night.
 """
 
+import re
 import statistics
 from typing import Iterable, Optional
 
@@ -23,6 +24,19 @@ TIMEOUT_RISK_RATIO = 0.8
 TIMEOUT_RISK_NIGHTS = 7
 ERROR_MAX_CHARS = 200
 CAUSE_MAX_PACKAGES = 3
+GPU_DEVICES = frozenset({"gpu", "igpu", "dgpu"})
+UNSPECIFIED_REASON = "not specified"
+
+# First match wins. Matched against "<exception type>: <exception message>" of a failure.
+EXTERNAL_CAUSES = (
+    ("certificate", re.compile(r"CERTIFICATE_VERIFY_FAILED|certificate has expired|SSLError|SSLCertVerificationError", re.I)),
+    ("gated_repo", re.compile(r"GatedRepoError|gated repo|access to model .* is restricted", re.I)),
+    ("rate_limit", re.compile(r"\b429\b|rate limit|too many requests", re.I)),
+    ("auth", re.compile(r"authentication token|invalid (user )?token|\b401\b|unauthori[sz]ed|not logged in", re.I)),
+    ("forbidden", re.compile(r"\b403\b|forbidden", re.I)),
+    ("not_found", re.compile(r"RepositoryNotFoundError|EntryNotFoundError|\b404\b", re.I)),
+    ("unreachable", re.compile(r"MaxRetryError|max retries|ConnectionError|ConnectTimeout|ReadTimeoutError|name resolution|connection (reset|aborted|refused|broken)|IncompleteRead", re.I)),
+)
 
 
 def _run(record: Optional[dict]) -> dict:
@@ -247,6 +261,17 @@ def error_text(failure: Optional[dict]) -> Optional[str]:
     return text
 
 
+def external_cause(failure: Optional[dict]) -> Optional[str]:
+    """Why a failure was probably caused by something outside the notebook (see EXTERNAL_CAUSES), or None."""
+    if not failure:
+        return None
+    text = f"{failure.get('exception_type') or ''}: {failure.get('exception_message') or ''}"
+    for cause, pattern in EXTERNAL_CAUSES:
+        if pattern.search(text):
+            return cause
+    return None
+
+
 def attention(history: History, night: int, repository: Optional[str], new_keys: Optional[set] = None) -> list:
     """Every failing (notebook, config) of `night` with its streak, last pass and likely cause."""
     new_keys = new_keys or set()
@@ -277,6 +302,7 @@ def attention(history: History, night: int, repository: Optional[str], new_keys:
                 "category": (failure or {}).get("category"),
                 "error_class": (failure or {}).get("error_class"),
                 "error": error_text(failure),
+                "external_cause": external_cause(failure),
             }
         )
     items.sort(key=lambda item: (not item["new"], -item["streak_nights"], item["notebook"], item["config_id"]))
@@ -393,7 +419,7 @@ def error_groups(history: History, night: int) -> list:
     groups = []
     for group in history.runs[night].get("error_groups") or []:
         stats = seen.get(group.get("signature")) or {}
-        groups.append({**group, "nights_seen": stats.get("nights", 0), "first_seen": stats.get("first_seen"), "last_seen": stats.get("last_seen")})
+        groups.append({**group, "external_cause": external_cause(group), "nights_seen": stats.get("nights", 0), "first_seen": stats.get("first_seen"), "last_seen": stats.get("last_seen")})
     return groups
 
 
@@ -434,6 +460,48 @@ def jobs_failed_before_tests(record: dict) -> list:
     ]
 
 
+def _device_of(config_id: str, devices: dict) -> str:
+    return devices.get(config_id) or (config_id or "").split("-", 1)[0].lower()
+
+
+def platform_stats(record: dict) -> dict:
+    """{"os": {family: {"executed", "passed"}}, "device": {...}, "python": {...}} over the night's executed results."""
+    configs = {config["id"]: config for config in record.get("configs") or []}
+    stats: dict = {"os": {}, "device": {}, "python": {}}
+    for row in expand_results(record):
+        if row.get("status") not in EXECUTED:
+            continue
+        config = configs.get(row.get("config_id")) or {}
+        keys = {"os": config.get("os_family"), "device": config.get("device"), "python": config.get("python")}
+        for dimension, key in keys.items():
+            if not key:
+                continue
+            entry = stats[dimension].setdefault(str(key), {"executed": 0, "passed": 0})
+            entry["executed"] += 1
+            entry["passed"] += row.get("status") == "passed"
+    return stats
+
+
+def skip_reasons(record: dict) -> list:
+    """[{"reason", "gpu", "non_gpu"}] counts of skipped results by reason, most frequent first."""
+    devices = {config["id"]: str(config.get("device") or "").lower() for config in record.get("configs") or []}
+    counts: dict = {}
+    for row in expand_results(record):
+        if row.get("status") != "skipped":
+            continue
+        entry = counts.setdefault(row.get("reason") or UNSPECIFIED_REASON, {"gpu": 0, "non_gpu": 0})
+        entry["gpu" if _device_of(row.get("config_id"), devices) in GPU_DEVICES else "non_gpu"] += 1
+    items = [{"reason": reason, **entry} for reason, entry in counts.items()]
+    items.sort(key=lambda item: (-(item["gpu"] + item["non_gpu"]), item["reason"]))
+    return items
+
+
+def never_executed(history: "History", night: int) -> list:
+    """Notebooks of the night's catalog without any executed result up to and including `night`."""
+    executed = {notebook for (notebook, _), points in history.series.items() if any(p["night"] <= night and p["status"] in EXECUTED for p in points)}
+    return sorted(notebook for notebook in history.runs[night].get("notebooks") or {} if notebook not in executed)
+
+
 def night_entry(record: dict, test: bool = False) -> dict:
     """One trend.json night: run identity, rates and counts (producer summary; counted from the results when missing)."""
     record = dashboard_record(record)
@@ -447,9 +515,7 @@ def night_entry(record: dict, test: bool = False) -> dict:
     for row in expand_results(record):
         if row.get("status") in counted:
             counted[row["status"]] += 1
-        config_id = row.get("config_id") or ""
-        device = devices.get(config_id) or config_id.split("-", 1)[0].lower()
-        if row.get("status") == "skipped" and device in {"gpu", "igpu", "dgpu"}:
+        if row.get("status") == "skipped" and _device_of(row.get("config_id"), devices) in GPU_DEVICES:
             skipped_gpu += 1
 
     def count(name: str) -> Optional[int]:
@@ -490,6 +556,7 @@ def night_entry(record: dict, test: bool = False) -> dict:
         "jobs_failed_before_tests": len(jobs_failed_before_tests(record)),
         "wall_clock_s": run.get("wall_clock_s"),
         "compute_s": results.get("compute_s"),
+        "platforms": platform_stats(record),
     }
 
 

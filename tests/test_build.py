@@ -47,14 +47,14 @@ META_KEYS = {
 }
 TREND_KEYS = set(
     "date run_id attempt url sha short_sha conclusion test pass_rate notebook_pass_rate coverage executed passed failed timeout error skipped skipped_gpu skipped_non_gpu "
-    "untested failing_notebooks jobs_failed_before_tests wall_clock_s compute_s".split()
+    "untested failing_notebooks jobs_failed_before_tests wall_clock_s compute_s platforms".split()
 )
 LATEST_KEYS = set(
-    "test run summary previous kpis configs notebooks failures attention changes flaky duration_regressions timeout_risk error_groups mttr_nights infra last_executed".split()
+    "test run summary previous kpis configs notebooks failures attention changes flaky duration_regressions timeout_risk error_groups mttr_nights infra last_executed skips never_executed".split()
 )
 KPI_NAMES = ["notebook_pass_rate", "failing_notebooks", "new_failures", "fixed", "executed", "skipped", "wall_clock_s"]
 NOTEBOOK_KEYS = {"path", "title", "dir", "tags", "links", "last_modified", "status", "worst", "failing", "flaky", "new_failure"}
-ATTENTION_KEYS = set("notebook config_id status failure_id new since streak_nights last_pass compare_url cause cause_detail category error_class error".split())
+ATTENTION_KEYS = set("notebook config_id status failure_id new since streak_nights last_pass compare_url cause cause_detail category error_class error external_cause".split())
 REF_KEYS = {"date", "run_id", "url", "sha"}
 CAUSES = {"notebook_changed", "openvino_changed", "packages_changed", "external_or_flaky", "unknown"}
 

@@ -89,10 +89,13 @@ Every file is JSON. All lists are ordered as described. Nights are ordered oldes
 {"nights": [{"date": "2026-10-12", "run_id": 1, "attempt": 1, "url": "...", "sha": "...", "short_sha": "abc1234", "conclusion": "failure", "test": false,
              "pass_rate": 0.98, "notebook_pass_rate": 0.98, "coverage": 1.0,
              "executed": 589, "passed": 577, "failed": 2, "timeout": 10, "error": 0, "skipped": 413,
-             "untested": 59, "failing_notebooks": 4, "jobs_failed_before_tests": 0, "wall_clock_s": 12634, "compute_s": 160000}]}
+             "untested": 59, "failing_notebooks": 4, "jobs_failed_before_tests": 0, "wall_clock_s": 12634, "compute_s": 160000,
+             "platforms": {"os": {"linux": {"executed": 442, "passed": 405}}, "device": {"cpu": {"executed": 650, "passed": 611}}, "python": {"3.11": {"executed": 314, "passed": 288}}}}]}
 ```
 
 This holds the last `windows.trend` official nights. In test-data mode the test run is appended with `"test": true`.
+
+`platforms` counts executed (passed + failed + timeout + error) and passed results per OS family (`linux`, `windows`, `macos`), device (`cpu`, `igpu`, `dgpu`) and Python version, from the configuration metadata. The page draws a pass rate (passed ÷ executed) per platform from it.
 
 Each night also contains `skipped_gpu` (GPU/iGPU/dGPU configuration skips) and `skipped_non_gpu` (all remaining skips). Their sum equals `skipped`. Device metadata is used when available, otherwise the configuration ID's device prefix is used. Both skip percentages use all planned runs as their denominator.
 Rates are numbers in [0, 1] or `null`.
@@ -132,7 +135,7 @@ The night shown on the page: the newest official night, or the test run in test-
      "since": {"date": "...", "run_id": 1, "url": "...", "sha": "..."}, "streak_nights": 1,
      "last_pass": {"date": "...", "run_id": 1, "url": "...", "sha": "..."}, "compare_url": "https://github.com/.../compare/<last_pass_sha>...<since_sha>",
      "cause": "notebook_changed", "cause_detail": "openvino 2026.4.1 → 2026.5.0.dev20261007",
-     "category": "cell_error", "error_class": "dependency", "error": "ModuleNotFoundError: No module named 'x'"}
+     "category": "cell_error", "error_class": "dependency", "error": "ModuleNotFoundError: No module named 'x'", "external_cause": null}
   ],
   "changes": {"new_failures": [{"notebook": "...", "config_id": "...", "status": "failed", "failure_id": "...", "previous_status": "passed"}],
               "fixed": [{"notebook": "...", "config_id": "..."}]},
@@ -143,7 +146,9 @@ The night shown on the page: the newest official night, or the test run in test-
                     "occurrences": 3, "notebooks": ["..."], "configs": ["..."], "nights_seen": 5, "first_seen": "2026-10-01", "last_seen": "2026-10-12"}],
   "mttr_nights": 2.5,
   "infra": {"jobs_failed_before_tests": [{"name": "...", "url": "...", "config_id": "...", "batch": "batch_0", "failed_step": "Install python dependencies"}]},
-  "last_executed": {"configs": ["cpu-ubuntu-22.04-py3.11", "cpu-windows-2022-py3.12"], "notebooks": {"a/a.ipynb": "PF", "b/b.ipynb": "-T"}}
+  "last_executed": {"configs": ["cpu-ubuntu-22.04-py3.11", "cpu-windows-2022-py3.12"], "notebooks": {"a/a.ipynb": "PF", "b/b.ipynb": "-T"}},
+  "skips": [{"reason": "skip_config", "gpu": 106, "non_gpu": 372}, {"reason": "ignore_list: tensorflow.txt", "gpu": 0, "non_gpu": 26}],
+  "never_executed": ["c/c.ipynb"]
 }
 ```
 
@@ -154,7 +159,8 @@ Details:
 - **`attention`**: every failing (notebook, config) of the night, sorted by `new` first, then by `streak_nights` descending, then notebook and config.
   - `since` is the first night of the current failing streak.
   - `last_pass` is the last night with `passed` before it (null if none in history).
-  - `cause` is one of `notebook_changed`, `openvino_changed`, `packages_changed`, `external_or_flaky`, `unknown` (no previous pass).
+  - `cause` is one of `notebook_changed`, `openvino_changed`, `packages_changed`, `external_or_flaky`, `unknown` (no previous pass). It only says what changed between the last pass and the first failure; the page labels it "Change correlation".
+  - `external_cause` is a heuristic over the exception type and message: `certificate`, `gated_repo`, `rate_limit`, `auth`, `forbidden`, `not_found`, `unreachable` (checked in this order), or `null` when the failure doesn't look caused by an external service. Error groups carry the same field.
 - **`changes`**: compares each (notebook, config) with its previous executed status in an earlier official night.
   - `new_failures` are failing now and passed at the previous executed status (`previous_status: "passed"`), or have no earlier executed status at all, e.g. a newly added notebook (`previous_status: null`; not reported on the first night of the history).
   - `fixed` passed now and failed at the previous executed status.
@@ -164,6 +170,8 @@ Details:
 - **`error_groups`**: the night's groups, enriched with `nights_seen`, `first_seen` and `last_seen` (the signature's occurrences across the official history).
 - **`mttr_nights`**: mean length in nights of failing streaks that ended (fixed) within the trend window; null if none.
 - **`last_executed`**: per notebook, the last executed status (`P`, `F`, `T`, `E`) up to and including this night, one character per entry of `configs` (sorted), `-` when that notebook × configuration has not been executed yet. Notebooks without any executed result are omitted. The page uses it to compare a later night with this one (see `nights/` below).
+- **`skips`**: the night's skipped results counted by `reason` (as in `results`, ignore-list file included), split into `gpu` (GPU/iGPU/dGPU configurations) and `non_gpu`; most frequent first.
+- **`never_executed`**: notebooks of the night's catalog with no executed result in any official night up to and including this one.
 
 ### `nights/<run_id>.json`
 

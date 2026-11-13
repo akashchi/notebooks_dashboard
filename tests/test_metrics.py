@@ -415,6 +415,45 @@ def test_skipped_counts_split_by_device():
     assert empty["skipped_gpu"] == empty["skipped_non_gpu"] == 0
 
 
+def test_external_cause_classifies_failures_by_their_exception_text():
+    cases = {
+        ("URLError", "<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate has expired>"): "certificate",
+        ("GatedRepoError", "401 Client Error. Cannot access gated repo"): "gated_repo",
+        ("HTTPError", "Authentication token does not exist"): "auth",
+        ("Exception", "403 Client Error: Forbidden for url"): "forbidden",
+        ("MaxRetryError", "None: Max retries exceeded with url"): "unreachable",
+        ("ModuleNotFoundError", "No module named 'dotenv'"): None,
+    }
+    for (exception_type, message), expected in cases.items():
+        assert metrics.external_cause({"exception_type": exception_type, "exception_message": message}) == expected
+    assert metrics.external_cause(None) is None
+
+
+def test_skip_reasons_platforms_and_never_executed():
+    results = [
+        result("a/a.ipynb"),
+        result("a/a.ipynb", config_id=CFG2, status="failed"),
+        result("b/b.ipynb", status="skipped"),
+        result("b/b.ipynb", config_id="igpu-linux-py3.11", status="skipped"),
+        result("c/c.ipynb", config_id="igpu-linux-py3.11", status="skipped"),
+    ]
+    results[3]["skip_reason"] = "ignore_list: gpu_oom.txt"
+    record = make_run(1, "2026-10-01", results)
+    record["configs"] = [
+        {"id": CFG, "device": "cpu", "os_family": "linux", "python": "3.11"},
+        {"id": CFG2, "device": "cpu", "os_family": "windows", "python": "3.12"},
+    ]
+    assert metrics.skip_reasons(record) == [
+        {"reason": "skip_config", "gpu": 1, "non_gpu": 1},
+        {"reason": "ignore_list: gpu_oom.txt", "gpu": 1, "non_gpu": 0},
+    ]
+    stats = metrics.platform_stats(record)
+    assert stats["os"] == {"linux": {"executed": 1, "passed": 1}, "windows": {"executed": 1, "passed": 0}}
+    assert stats["python"]["3.12"] == {"executed": 1, "passed": 0}
+    assert metrics.night_entry(record)["platforms"] == stats
+    assert metrics.never_executed(metrics.History([record]), 0) == ["b/b.ipynb", "c/c.ipynb"]
+
+
 def test_unstarted_results_become_infrastructure_errors_everywhere():
     from copy import deepcopy
     import build

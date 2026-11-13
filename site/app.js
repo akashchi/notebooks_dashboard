@@ -248,7 +248,7 @@
   }
 
   const KPIS = [
-    ["notebook_pass_rate", "Notebook pass rate", "rate", 1, "Passed ÷ executed notebook runs (each notebook on each configuration; executed = passed + failed + timeout + error)."],
+    ["notebook_pass_rate", "Notebook pass rate", "rate", 1, "Passed ÷ executed notebook runs (each notebook on each configuration; executed = passed + failed + timeout + error). Skipped runs are not counted, so this is not the share of all planned runs."],
     ["failing_notebooks", "Failing notebooks", "count", -1, "Notebooks with at least one failed, timed-out or errored configuration."],
     ["new_failures", "New failures", "count", -1, "Notebook × configuration results failing now that passed the previous time they ran, or that have no earlier result."],
     ["fixed", "Fixed", "count", 1, "Notebook × configuration results passing now that failed the previous time they ran."],
@@ -287,6 +287,7 @@
           { class: "kpi", title: help, tabindex: "0" },
           el("div", { class: "kpi-label" }, label),
           el("div", { class: "kpi-value" }, formatKpi(kind, kpi.value)),
+          key === "notebook_pass_rate" && isNum((kpis.executed || {}).value) ? el("div", { class: "muted small" }, `of ${kpis.executed.value} executed runs`) : null,
           el("div", { class: cls, title: delta ? since : null }, delta)
         )
       );
@@ -425,8 +426,10 @@
       const executed = count(night, "passed") + count(night, "failed") + count(night, "timeout") + count(night, "error");
       const lines = [
         `${date(night.date)}${night.test ? " (test run)" : ""} — executed ${executed}, skipped ${count(night, "skipped")}`,
+        ...(night.jobs_failed_before_tests ? [`⚠ ${plural(night.jobs_failed_before_tests, "job")} failed before running notebooks (counted as errors)`] : []),
         ...kinds.map(([key, label]) => `${label}: ${count(night, key)}`),
       ];
+      if (night.jobs_failed_before_tests && !night.test) group.append(svg("text", { x: x(index), y: top - 12, class: "test-mark", "text-anchor": "middle" }, "⚠"));
       group.append(svg("title", null, lines.join("\n")));
       const href = safeUrl(night.url);
       root.append(href ? svg("a", { href, target: "_blank", rel: "noopener" }, group) : group);
@@ -474,7 +477,7 @@
     });
     return el(
       "div",
-      { class: "chart-card", title: "Left bar: passed, error (including infrastructure errors), failed and timeout. Right bar: skipped GPU and non-GPU runs." },
+      { class: "chart-card wide", title: "Left bar: passed, error (including infrastructure errors), failed and timeout. Right bar: skipped GPU and non-GPU runs." },
       el("h3", null, "Executed and skipped notebook runs"),
       legend,
       root,
@@ -482,6 +485,84 @@
       breakdown,
       older.length ? el("p", null, toggle) : null
     );
+  }
+
+  const PALETTE = ["#1f77b4", "#e15759", "#59a14f", "#b07aa1", "#f28e2b"];
+  const PLATFORM_LABELS = {
+    os: { linux: "Linux", windows: "Windows", macos: "macOS" },
+    device: { cpu: "CPU", igpu: "iGPU", dgpu: "dGPU" },
+  };
+
+  function platformLabel(dimension, key) {
+    return (PLATFORM_LABELS[dimension] || {})[key] || (dimension === "python" ? `Python ${key}` : key);
+  }
+
+  // A line chart with one line per series; values come from `series[].value(night)`. `percent` scales the axis to rates.
+  function multiLine(nights, marks, title, series, options) {
+    const values = nights.flatMap((night) => series.map((s) => s.value(night)).filter(isNum));
+    const percent = Boolean(options.percent);
+    const top = percent ? 1 : Math.max(1, ...values) * 1.1;
+    const low = percent ? (values.length ? Math.max(0, Math.floor((Math.min(...values) - 0.02) * 10) / 10) : 0) : 0;
+    const y = (value) => CHART.top + (1 - (value - low) / (top - low || 1)) * (CHART.height - CHART.top - CHART.bottom);
+    const x = xScale(nights.length);
+    const root = svg("svg", { viewBox: `0 0 ${CHART.width} ${CHART.height}`, class: "chart", role: "img", "aria-label": title });
+    for (let i = 0; i <= 4; i++) {
+      const value = low + ((top - low) * i) / 4;
+      root.append(
+        svg("line", { x1: CHART.left, x2: CHART.width - CHART.right, y1: y(value), y2: y(value), class: "grid" }),
+        svg("text", { x: CHART.left - 6, y: y(value) + 4, class: "axis", "text-anchor": "end" }, options.format(value, true))
+      );
+    }
+    marker(root, x(marks.base), marks.base, "base");
+    marker(root, x(marks.night), marks.night, "night");
+    series.forEach((s, index) => {
+      const color = PALETTE[index % PALETTE.length];
+      let path = "";
+      let pen = "M";
+      nights.forEach((night, i) => {
+        const value = s.value(night);
+        if (isNum(value)) {
+          path += `${pen}${x(i).toFixed(1)},${y(value).toFixed(1)} `;
+          pen = "L";
+        } else {
+          pen = "M";
+        }
+      });
+      if (path) root.append(svg("path", { d: path.trim(), class: "series", stroke: color }));
+      nights.forEach((night, i) => {
+        const value = s.value(night);
+        if (!isNum(value)) return;
+        const point = svg("circle", { cx: x(i), cy: y(value), r: nights.length > 60 ? 2 : 3, fill: color });
+        point.append(svg("title", null, `${date(night.date)}${night.test ? " (test run)" : ""} — ${s.label}: ${options.format(value)}`));
+        root.append(point);
+      });
+    });
+    xLabels(root, nights, x);
+    const legend = el(
+      "div",
+      { class: "legend" },
+      series.map((s, index) => el("span", null, el("span", { class: "swatch", style: `background: ${PALETTE[index % PALETTE.length]}` }), s.label))
+    );
+    return el("div", { class: "chart-card" }, el("h3", null, title), legend, root, options.note ? el("p", { class: "muted small" }, options.note) : null);
+  }
+
+  function platformCharts(nights, marks) {
+    const rate = (dimension, key) => (night) => {
+      const entry = ((night.platforms || {})[dimension] || {})[key];
+      return entry && entry.executed ? entry.passed / entry.executed : null;
+    };
+    return [
+      ["device", "Pass rate by device"],
+      ["python", "Pass rate by Python version"],
+      ["os", "Pass rate by OS"],
+    ]
+      .map(([dimension, title]) => {
+        const keys = [...new Set(nights.flatMap((night) => Object.keys((night.platforms || {})[dimension] || {})))].sort();
+        if (keys.length < 2) return null;
+        const series = keys.map((key) => ({ label: platformLabel(dimension, key), value: rate(dimension, key) }));
+        return multiLine(nights, marks, title, series, { percent: true, format: (value) => pct(value), note: "Passed ÷ executed runs on that platform; GPU configurations run far fewer notebooks." });
+      })
+      .filter(Boolean);
   }
 
   function renderTrends(nights, selection) {
@@ -494,7 +575,7 @@
     }
     const indexOf = (runId) => nights.findIndex((night) => String(night.run_id) === String(runId));
     const marks = { night: indexOf(selection && selection.night), base: indexOf(selection && selection.base) };
-    box.append(lineChart(nights, marks), barChart(nights, marks));
+    box.append(...[lineChart(nights, marks), barChart(nights, marks), ...platformCharts(nights, marks)].filter(Boolean));
   }
 
   // ---------------------------------------------------------------- tables
@@ -558,7 +639,13 @@
         )
       );
     });
-    box.append(table(["Notebook", ...CONFIG_HEADERS, "Status", "Since", "Probable cause", "Error", "Links"], rows, { class: "attention" }));
+    box.append(
+      table(
+        ["Notebook", ...CONFIG_HEADERS, "Status", "Since", { text: "Change correlation", attrs: { title: "What changed between the last pass and the first failure. Not a diagnosis: see the error and the failure overview for the likely root cause." } }, "Error", "Links"],
+        rows,
+        { class: "attention" }
+      )
+    );
   }
 
   function renderChanges(latest, catalog) {
@@ -582,6 +669,14 @@
     };
     newFailures.forEach((item) => add(item, "new failure"));
     fixed.forEach((item) => add(item, "fixed"));
+    const failures = latest.failures || {};
+    // Link to where the notebook's test starts in the job log (the whole step log when the start isn't known).
+    const logLink = (item) => {
+      const links = (failures[item.failure_id] || {}).links || {};
+      const start = safeUrl(links.test_start);
+      const fallback = safeUrl(links.treon_step) || safeUrl(links.job);
+      return start || fallback ? el("span", null, el("span", { class: "muted small" }, " · "), link(start || fallback, start ? "log start" : "log", { class: "small" })) : null;
+    };
     box.append(
       el("p", { class: "muted small changes-summary" }, `New failures: ${newFailures.length} · Fixed: ${fixed.length} · ${plural(cards.size, "notebook")}`),
       el(
@@ -602,7 +697,8 @@
                   badge(kind === "fixed" ? "passed" : item.status || "failed"),
                   " ",
                   configLabel(item.config_id),
-                  kind === "fixed" ? el("span", { class: "muted small" }, " — fixed") : item.previous_status === null ? el("span", { class: "muted small" }, " — no previous result") : null
+                  kind === "fixed" ? el("span", { class: "muted small" }, " — fixed") : item.previous_status === null ? el("span", { class: "muted small" }, " — no previous result") : null,
+                  kind === "fixed" ? null : logLink(item)
                 )
               )
             )
@@ -693,6 +789,8 @@
       );
       return { key, select };
     });
+    const blast = blastRadius(latest, catalog);
+    if (blast) box.append(blast);
     box.append(el("div", { class: "controls" }, search, chips, dimensions.map((d) => d.select), count));
 
     const entries = [];
@@ -862,19 +960,14 @@
     apply();
   }
 
-  function renderSlow(latest, catalog) {
+  function renderSlow(latest, history, catalog) {
     const box = document.getElementById("slow");
     show("sec-slow", true);
     box.textContent = "";
     const block = (title, items, headers, render) =>
       el("div", null, el("h3", null, title), items.length ? table(headers, items.map((item) => el("tr", null, render(item)))) : el("p", { class: "none" }, "None."));
     box.append(
-      block("Flaky", latest.flaky || [], ["Notebook", ...CONFIG_HEADERS, { text: "Score", attrs: { class: "num" } }, "Recent executions"], (item) => [
-        el("td", null, notebookCell(item.notebook, catalog)),
-        ...configCells(item.config_id),
-        el("td", { class: "num", title: `${item.transitions} pass/fail changes in ${item.executed} executed nights` }, isNum(item.score) ? item.score.toFixed(2) : "n/a"),
-        el("td", null, strip(item.history, null, "recent executions")),
-      ]),
+      stabilityBlock(latest, history, catalog),
       block(
         "Timeout risk",
         latest.timeout_risk || [],
@@ -885,18 +978,6 @@
           el("td", { class: "num" }, duration(item.median_s)),
           el("td", { class: "num" }, duration(item.timeout_s)),
           el("td", { class: "num" }, pct(item.ratio)),
-        ]
-      ),
-      block(
-        "Duration regressions",
-        latest.duration_regressions || [],
-        ["Notebook", ...CONFIG_HEADERS, { text: "Duration", attrs: { class: "num" } }, { text: "Baseline", attrs: { class: "num" } }, { text: "Ratio", attrs: { class: "num" } }],
-        (item) => [
-          el("td", null, notebookCell(item.notebook, catalog)),
-          ...configCells(item.config_id),
-          el("td", { class: "num" }, duration(item.duration_s)),
-          el("td", { class: "num", title: "median of the previous passed runs" }, duration(item.baseline_s)),
-          el("td", { class: "num" }, isNum(item.ratio) ? `×${item.ratio.toFixed(2)}` : "n/a"),
         ]
       )
     );
@@ -1100,15 +1181,262 @@
     }
   }
 
+  // ---------------------------------------------------------------- failure overview, stability, coverage
+  const EXTERNAL_CAUSES = {
+    certificate: "Invalid or expired TLS certificate",
+    gated_repo: "Gated model repository",
+    auth: "Missing or invalid auth token",
+    forbidden: "403 Forbidden from an external host",
+    rate_limit: "Rate limited",
+    not_found: "Remote resource not found",
+    unreachable: "Network unreachable or retries exceeded",
+  };
+  const ERROR_CLASSES = {
+    timeout: "Timeout",
+    dependency: "Dependency or install error",
+    openvino: "OpenVINO runtime error",
+    crash: "Kernel crash",
+    network: "Network error (unclassified)",
+    other: "Other notebook error",
+  };
+
+  // {key, label, kind}: the probable root cause of a failing result; kind tells who has to act.
+  function rootCause(item) {
+    if (item.external_cause) return { key: item.external_cause, label: EXTERNAL_CAUSES[item.external_cause] || item.external_cause, kind: "External" };
+    if (item.category === "infrastructure") return { key: "infrastructure", label: "Infrastructure (job failed before tests)", kind: "Infrastructure" };
+    const key = item.error_class || "other";
+    return { key, label: ERROR_CLASSES[key] || key, kind: key === "timeout" ? "Timeout" : "Notebook" };
+  }
+
+  function countBars(entries, total) {
+    const peak = Math.max(1, ...entries.map(([, count]) => count));
+    return el(
+      "ul",
+      { class: "bars" },
+      entries.map(([label, count]) =>
+        el(
+          "li",
+          { title: `${count} of ${total}` },
+          el("span", { class: "bars-label" }, label),
+          el("span", { class: "bars-track" }, el("span", { class: "bars-fill", style: `width: ${(count / peak) * 100}%` })),
+          el("span", { class: "bars-count" }, count)
+        )
+      )
+    );
+  }
+
+  function renderOverview(latest, catalog) {
+    const box = document.getElementById("overview");
+    const items = latest.attention || [];
+    show("sec-overview", items.length > 0);
+    box.textContent = "";
+    if (!items.length) return;
+    const groups = new Map();
+    for (const item of items) {
+      const cause = rootCause(item);
+      const group = groups.get(cause.key) || { cause, items: [], notebooks: new Set(), configs: new Set() };
+      group.items.push(item);
+      group.notebooks.add(item.notebook);
+      group.configs.add(item.config_id);
+      groups.set(cause.key, group);
+    }
+    const ordered = Array.from(groups.values()).sort((a, b) => b.items.length - a.items.length);
+    const external = items.filter((item) => rootCause(item).kind === "External").length;
+    const notebooks = new Set(items.map((item) => item.notebook));
+    const longRunning = items.filter((item) => !item.new && (item.streak_nights || 0) >= 7).length;
+    const fresh = items.filter((item) => item.new).length;
+    const recurring = items.length - fresh - longRunning;
+    box.append(
+      el(
+        "p",
+        null,
+        `${plural(items.length, "failing run")} in ${plural(notebooks.size, "notebook")}. `,
+        el("strong", null, `${external} (${Math.round((external / items.length) * 100)}%)`),
+        " look caused by something outside the notebook (network, credentials, certificates). ",
+        `${fresh} new, ${recurring} recurring, ${longRunning} failing for 7+ nights.`
+      ),
+      table(
+        ["Probable root cause", "Type", { text: "Failing runs", attrs: { class: "num" } }, { text: "Notebooks", attrs: { class: "num" } }, { text: "Configs", attrs: { class: "num" } }, { text: "New", attrs: { class: "num" } }, "Affected notebooks"],
+        ordered.map((group) => {
+          const names = Array.from(group.notebooks).map((path) => ((catalog[path] || {}).title) || path);
+          return el(
+            "tr",
+            null,
+            el("td", null, group.cause.label),
+            el("td", { class: "nowrap" }, group.cause.kind),
+            el("td", { class: "num" }, group.items.length),
+            el("td", { class: "num" }, group.notebooks.size),
+            el("td", { class: "num" }, group.configs.size),
+            el("td", { class: "num" }, group.items.filter((item) => item.new).length),
+            el("td", { class: "small" }, names.slice(0, 4).join(", "), names.length > 4 ? ` +${names.length - 4}` : "")
+          );
+        })
+      )
+    );
+  }
+
+  // "Failing runs by …" cards: how the failing notebook × configuration results spread over platforms and areas.
+  function blastRadius(latest, catalog) {
+    const items = latest.attention || [];
+    if (!items.length) return null;
+    const tally = (pick) => {
+      const counts = new Map();
+      for (const item of items) {
+        const key = pick(item);
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      return Array.from(counts).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
+    };
+    const panel = (title, entries) => el("div", { class: "chart-card" }, el("h3", null, title), countBars(entries, items.length));
+    return el(
+      "div",
+      { class: "charts blast" },
+      panel("Failing runs by OS", tally((item) => configParts(item.config_id).os)),
+      panel("Failing runs by device", tally((item) => configParts(item.config_id).device || "CPU")),
+      panel("Failing runs by Python", tally((item) => "py" + (configParts(item.config_id).python || "?")))
+    );
+  }
+
+  // Classification of a notebook from its worst-status history (one character per night, see docs/DATA.md).
+  function stabilityClass(codes, flakyNotebook) {
+    const executed = Array.from(codes).filter((c) => "PFTE".includes(c));
+    if (executed.length < 3) return executed.length ? "Too little history" : null;
+    const failed = executed.filter((c) => c !== "P").length;
+    let trailing = 0;
+    while (trailing < executed.length && executed[executed.length - 1 - trailing] !== "P") trailing++;
+    if (failed === executed.length) return "Always failing";
+    if (trailing >= 1) return trailing >= 3 ? "Failing for 3+ nights" : "Newly failing";
+    if (executed.slice(-5).some((c) => c !== "P")) return "Recently recovered";
+    return flakyNotebook ? "Flaky" : "Stable";
+  }
+
+  const STABILITY_ORDER = ["Always failing", "Failing for 3+ nights", "Newly failing", "Flaky", "Recently recovered", "Too little history", "Stable"];
+
+  function stabilityBlock(latest, history, catalog) {
+    const box = el("div", null, el("h3", null, "Stability"));
+    const matrix = history.notebooks || {};
+    if (!Object.keys(matrix).length) {
+      box.append(el("p", { class: "none" }, "No history yet."));
+      return box;
+    }
+    const flakyNotebooks = new Set((latest.flaky || []).map((item) => item.notebook));
+    const classes = new Map();
+    for (const [path, entry] of Object.entries(matrix)) {
+      const cls = stabilityClass(entry.all, flakyNotebooks.has(path));
+      if (!cls) continue;
+      if (!classes.has(cls)) classes.set(cls, []);
+      classes.get(cls).push(path);
+    }
+    const nights = history.nights || [];
+    box.append(
+      el("p", { class: "muted small" }, `Based on each notebook's worst status per night over the last ${plural(nights.length, "night")}; skipped nights are ignored.`),
+      el(
+        "div",
+        { class: "kpis stability-kpis" },
+        STABILITY_ORDER.filter((cls) => classes.has(cls)).map((cls) =>
+          el("div", { class: "kpi" }, el("div", { class: "kpi-label" }, cls), el("div", { class: "kpi-value" }, classes.get(cls).length))
+        )
+      )
+    );
+    const rows = [];
+    for (const cls of STABILITY_ORDER) {
+      if (["Stable", "Too little history"].includes(cls)) continue;
+      for (const path of (classes.get(cls) || []).sort()) {
+        rows.push(el("tr", null, el("td", null, notebookCell(path, catalog)), el("td", { class: "nowrap" }, cls), el("td", null, strip(matrix[path].all, nights, path))));
+      }
+    }
+    box.append(rows.length ? table(["Notebook", "Class", "History (oldest → newest)"], rows) : el("p", { class: "none" }, "Every notebook is stable."));
+    return box;
+  }
+
+  function skipReasonLabel(reason) {
+    if (reason === "skip_config") return "Not enabled for this configuration (skip_config)";
+    const match = /^ignore_list: (.+?)(\.txt)?$/.exec(reason || "");
+    return match ? `Ignore list: ${match[1]}` : reason || "Not specified";
+  }
+
+  function renderCoverage(latest, catalog) {
+    const box = document.getElementById("coverage");
+    show("sec-coverage", Boolean(latest.run));
+    box.textContent = "";
+    if (!latest.run) return;
+    const notebooks = latest.notebooks || [];
+    const configs = (latest.configs || []).map((config) => config.id);
+    const tested = (summary) => summary && summary.notebooks;
+    const counts = tested(latest.summary) || {};
+    const perConfig = configs.map((id) => {
+      const tally = { P: 0, F: 0, T: 0, E: 0, S: 0 };
+      for (const notebook of notebooks) {
+        const status = (notebook.status || {})[id];
+        if (status && tally[status.s] !== undefined) tally[status.s]++;
+      }
+      return { id, executed: tally.P + tally.F + tally.T + tally.E, skipped: tally.S, passed: tally.P };
+    });
+    box.append(
+      isNum(counts.total)
+        ? el("p", null, `${counts.tested} of ${counts.total} notebooks ran on at least one configuration tonight; `, el("strong", null, `${counts.untested} did not run at all`), " (all their configurations are skipped).")
+        : null,
+      el("h3", null, "Coverage per configuration"),
+      table(
+        ["Configuration", { text: "Executed", attrs: { class: "num" } }, { text: "Passed", attrs: { class: "num" } }, { text: "Skipped", attrs: { class: "num" } }, { text: "Coverage", attrs: { class: "num", title: "Executed ÷ notebooks in the catalog" } }],
+        perConfig.map((row) =>
+          el(
+            "tr",
+            null,
+            el("td", { class: "nowrap" }, configLabel(row.id)),
+            el("td", { class: "num" }, row.executed),
+            el("td", { class: "num" }, row.passed),
+            el("td", { class: "num" }, row.skipped),
+            el("td", { class: "num" }, notebooks.length ? pct(row.executed / notebooks.length) : "n/a")
+          )
+        )
+      )
+    );
+    const skips = latest.skips || [];
+    if (skips.length) {
+      const total = skips.reduce((sum, row) => sum + row.gpu + row.non_gpu, 0);
+      box.append(
+        el("h3", null, `Skipped runs by reason (${total})`),
+        table(
+          ["Reason", { text: "GPU", attrs: { class: "num" } }, { text: "Non-GPU", attrs: { class: "num" } }, { text: "Total", attrs: { class: "num" } }, { text: "Share", attrs: { class: "num" } }],
+          skips.map((row) =>
+            el(
+              "tr",
+              null,
+              el("td", null, skipReasonLabel(row.reason)),
+              el("td", { class: "num" }, row.gpu),
+              el("td", { class: "num" }, row.non_gpu),
+              el("td", { class: "num" }, row.gpu + row.non_gpu),
+              el("td", { class: "num" }, pct((row.gpu + row.non_gpu) / total))
+            )
+          )
+        )
+      );
+    }
+    const never = latest.never_executed || [];
+    if (never.length) {
+      box.append(
+        el(
+          "details",
+          null,
+          el("summary", null, `${plural(never.length, "notebook")} never executed in the stored history`),
+          el("ul", { class: "small" }, never.map((path) => el("li", null, ((catalog[path] || {}).title) || path, el("span", { class: "muted" }, ` — ${path}`))))
+        )
+      );
+    }
+  }
+
   function renderNight(meta, night, history) {
     configsById = Object.fromEntries((night.configs || []).map((config) => [config.id, config]));
     const catalog = Object.fromEntries((night.notebooks || []).map((notebook) => [notebook.path, notebook]));
     guarded("header", () => renderHeader(meta, night));
     guarded("key metrics", () => renderKpis(night.kpis || {}, night.previous));
     guarded("needs attention", () => renderAttention(night, catalog));
+    guarded("failure overview", () => renderOverview(night, catalog));
     guarded("changes", () => renderChanges(night, catalog));
     guarded("notebook health", () => renderHealth(night, history, catalog));
-    guarded("flaky and slow", () => renderSlow(night, catalog));
+    guarded("flaky and slow", () => renderSlow(night, history, catalog));
+    guarded("coverage", () => renderCoverage(night, catalog));
     guarded("error groups", () => renderErrors(night));
     guarded("infrastructure", () => renderInfra(night));
   }
