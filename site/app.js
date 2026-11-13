@@ -84,7 +84,7 @@
       headers.map((header) => (typeof header === "string" ? el("th", { scope: "col" }, header) : el("th", Object.assign({ scope: "col" }, header.attrs), header.text)))
     );
     const attrs = options && options.class ? { class: options.class } : null;
-    return el("div", { class: "table-wrap" + (options && options.tall ? " tall" : "") }, el("table", attrs, el("thead", null, head), el("tbody", null, rows)));
+    return el("div", { class: "table-wrap tall" }, el("table", attrs, el("thead", null, head), el("tbody", null, rows)));
   }
 
   // ---------------------------------------------------------------- formatting
@@ -295,6 +295,7 @@
 
   // ---------------------------------------------------------------- charts
   const CHART = { width: 640, height: 220, left: 44, right: 12, top: 12, bottom: 26 };
+  const BREAKDOWN_LATEST = 5;
 
   function xScale(count) {
     const span = CHART.width - CHART.left - CHART.right;
@@ -460,6 +461,17 @@
       }),
       { class: "status-percentages" }
     );
+    // The table stays visible; only its rows older than the latest nights are collapsed until expanded.
+    const rows = Array.from(breakdown.querySelectorAll("tbody tr"));
+    const older = rows.slice(0, Math.max(0, rows.length - BREAKDOWN_LATEST));
+    older.forEach((row) => (row.hidden = true));
+    const toggle = el("button", { type: "button", class: "chip", "aria-expanded": "false" }, `Show all ${plural(rows.length, "night")}`);
+    toggle.addEventListener("click", () => {
+      const expanded = toggle.getAttribute("aria-expanded") !== "true";
+      older.forEach((row) => (row.hidden = !expanded));
+      toggle.setAttribute("aria-expanded", String(expanded));
+      toggle.textContent = expanded ? `Show only the latest ${BREAKDOWN_LATEST}` : `Show all ${plural(rows.length, "night")}`;
+    });
     return el(
       "div",
       { class: "chart-card", title: "Left bar: passed, error (including infrastructure errors), failed and timeout. Right bar: skipped GPU and non-GPU runs." },
@@ -467,7 +479,8 @@
       legend,
       root,
       el("p", { class: "muted small" }, "Error, Failed and Timeout: % of executed runs. Other categories: % of all planned runs. Rounded to one decimal."),
-      breakdown
+      breakdown,
+      older.length ? el("p", null, toggle) : null
     );
   }
 
@@ -555,17 +568,47 @@
     document.getElementById("changes-title").textContent = previous ? `Changes since ${date(previous.date)}` : "Changes since the previous night";
     box.textContent = "";
     const changes = latest.changes || {};
-    const column = (title, items, render) =>
+    const newFailures = changes.new_failures || [];
+    const fixed = changes.fixed || [];
+    if (!newFailures.length && !fixed.length) {
+      box.append(el("p", { class: "none" }, "No changes."));
+      return;
+    }
+    // One card per notebook, listing its configurations that started failing or were fixed.
+    const cards = new Map();
+    const add = (item, kind) => {
+      if (!cards.has(item.notebook)) cards.set(item.notebook, []);
+      cards.get(item.notebook).push({ item, kind });
+    };
+    newFailures.forEach((item) => add(item, "new failure"));
+    fixed.forEach((item) => add(item, "fixed"));
+    box.append(
+      el("p", { class: "muted small changes-summary" }, `New failures: ${newFailures.length} · Fixed: ${fixed.length} · ${plural(cards.size, "notebook")}`),
       el(
         "div",
-        null,
-        el("h3", null, `${title} (${items.length})`),
-        items.length ? el("ul", null, items.map((item) => el("li", null, render(item)))) : el("p", { class: "none" }, "None.")
-      );
-    const name = (path) => ((catalog[path] || {}).title && catalog[path].title !== path ? catalog[path].title : path);
-    box.append(
-      column("New failures", changes.new_failures || [], (item) => [badge(item.status || "failed"), " ", link((catalog[item.notebook] || {}).links ? catalog[item.notebook].links.source : null, name(item.notebook)), el("span", { class: "muted" }, " — " + configLabel(item.config_id) + (item.previous_status === null ? " (no previous result)" : ""))]),
-      column("Fixed", changes.fixed || [], (item) => [badge("passed"), " ", link((catalog[item.notebook] || {}).links ? catalog[item.notebook].links.source : null, name(item.notebook)), el("span", { class: "muted" }, " — " + configLabel(item.config_id))])
+        { class: "cards" },
+        Array.from(cards, ([path, entries]) =>
+          el(
+            "div",
+            { class: "card" },
+            el("div", null, notebookCell(path, catalog)),
+            el(
+              "ul",
+              null,
+              entries.map(({ item, kind }) =>
+                el(
+                  "li",
+                  null,
+                  badge(kind === "fixed" ? "passed" : item.status || "failed"),
+                  " ",
+                  configLabel(item.config_id),
+                  kind === "fixed" ? el("span", { class: "muted small" }, " — fixed") : item.previous_status === null ? el("span", { class: "muted small" }, " — no previous result") : null
+                )
+              )
+            )
+          )
+        )
+      )
     );
   }
 

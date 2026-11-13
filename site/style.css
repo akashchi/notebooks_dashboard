@@ -191,8 +191,11 @@ div.failure { border-left: 3px solid var(--F); padding: 0.2rem 0 0.2rem 0.6rem; 
 div.failure details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 
 /* Lists */
-.changes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
-.changes ul, .infra ul { margin: 0.3rem 0; padding-left: 1.2rem; }
+.changes .changes-summary { margin: 0 0 0.6rem; }
+.changes .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0.75rem; }
+.changes .card { padding: 0.5rem 0.75rem; background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+.infra ul { margin: 0.3rem 0; padding-left: 1.2rem; }
+.changes ul { margin: 0.3rem 0 0; padding-left: 0; list-style: none; }
 .changes li { margin: 0.2rem 0; }
 .slow { display: grid; gap: 0.5rem; }
 
