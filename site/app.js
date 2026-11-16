@@ -497,53 +497,77 @@
     return (PLATFORM_LABELS[dimension] || {})[key] || (dimension === "python" ? `Python ${key}` : key);
   }
 
+  // Series the user switched off per chart title; kept when another night is selected.
+  const hiddenSeries = new Map();
+
   // A line chart with one line per series; values come from `series[].value(night)`. `percent` scales the axis to rates.
+  // The chips above the plot toggle the series; the axis is rescaled to the ones left (all are shown by default).
   function multiLine(nights, marks, title, series, options) {
-    const values = nights.flatMap((night) => series.map((s) => s.value(night)).filter(isNum));
+    const hidden = hiddenSeries.get(title) || new Set();
+    hiddenSeries.set(title, hidden);
     const percent = Boolean(options.percent);
-    const top = percent ? 1 : Math.max(1, ...values) * 1.1;
-    const low = percent ? (values.length ? Math.max(0, Math.floor((Math.min(...values) - 0.02) * 10) / 10) : 0) : 0;
-    const y = (value) => CHART.top + (1 - (value - low) / (top - low || 1)) * (CHART.height - CHART.top - CHART.bottom);
     const x = xScale(nights.length);
-    const root = svg("svg", { viewBox: `0 0 ${CHART.width} ${CHART.height}`, class: "chart", role: "img", "aria-label": title });
-    for (let i = 0; i <= 4; i++) {
-      const value = low + ((top - low) * i) / 4;
-      root.append(
-        svg("line", { x1: CHART.left, x2: CHART.width - CHART.right, y1: y(value), y2: y(value), class: "grid" }),
-        svg("text", { x: CHART.left - 6, y: y(value) + 4, class: "axis", "text-anchor": "end" }, options.format(value, true))
-      );
+
+    function plot() {
+      const shown = series.map((s, index) => ({ s, color: PALETTE[index % PALETTE.length] })).filter(({ s }) => !hidden.has(s.label));
+      const values = nights.flatMap((night) => shown.map(({ s }) => s.value(night)).filter(isNum));
+      const top = percent ? 1 : Math.max(1, ...values) * 1.1;
+      const low = percent ? (values.length ? Math.max(0, Math.floor((Math.min(...values) - 0.02) * 10) / 10) : 0) : 0;
+      const y = (value) => CHART.top + (1 - (value - low) / (top - low || 1)) * (CHART.height - CHART.top - CHART.bottom);
+      const root = svg("svg", { viewBox: `0 0 ${CHART.width} ${CHART.height}`, class: "chart", role: "img", "aria-label": title });
+      for (let i = 0; i <= 4; i++) {
+        const value = low + ((top - low) * i) / 4;
+        root.append(
+          svg("line", { x1: CHART.left, x2: CHART.width - CHART.right, y1: y(value), y2: y(value), class: "grid" }),
+          svg("text", { x: CHART.left - 6, y: y(value) + 4, class: "axis", "text-anchor": "end" }, options.format(value, true))
+        );
+      }
+      marker(root, x(marks.base), marks.base, "base");
+      marker(root, x(marks.night), marks.night, "night");
+      for (const { s, color } of shown) {
+        let path = "";
+        let pen = "M";
+        nights.forEach((night, i) => {
+          const value = s.value(night);
+          if (isNum(value)) {
+            path += `${pen}${x(i).toFixed(1)},${y(value).toFixed(1)} `;
+            pen = "L";
+          } else {
+            pen = "M";
+          }
+        });
+        if (path) root.append(svg("path", { d: path.trim(), class: "series", stroke: color }));
+        nights.forEach((night, i) => {
+          const value = s.value(night);
+          if (!isNum(value)) return;
+          const point = svg("circle", { cx: x(i), cy: y(value), r: nights.length > 60 ? 2 : 3, fill: color });
+          point.append(svg("title", null, `${date(night.date)}${night.test ? " (test run)" : ""} — ${s.label}: ${options.format(value)}`));
+          root.append(point);
+        });
+      }
+      xLabels(root, nights, x);
+      return root;
     }
-    marker(root, x(marks.base), marks.base, "base");
-    marker(root, x(marks.night), marks.night, "night");
-    series.forEach((s, index) => {
-      const color = PALETTE[index % PALETTE.length];
-      let path = "";
-      let pen = "M";
-      nights.forEach((night, i) => {
-        const value = s.value(night);
-        if (isNum(value)) {
-          path += `${pen}${x(i).toFixed(1)},${y(value).toFixed(1)} `;
-          pen = "L";
-        } else {
-          pen = "M";
-        }
+
+    let current = plot();
+    const chips = series.map((s, index) => {
+      const chip = el(
+        "button",
+        { type: "button", class: "chip legend-chip", "aria-pressed": String(!hidden.has(s.label)), title: `Show or hide ${s.label}` },
+        el("span", { class: "swatch", style: `background: ${PALETTE[index % PALETTE.length]}` }),
+        s.label
+      );
+      chip.addEventListener("click", () => {
+        if (hidden.has(s.label)) hidden.delete(s.label);
+        else hidden.add(s.label);
+        chip.setAttribute("aria-pressed", String(!hidden.has(s.label)));
+        const next = plot();
+        current.replaceWith(next);
+        current = next;
       });
-      if (path) root.append(svg("path", { d: path.trim(), class: "series", stroke: color }));
-      nights.forEach((night, i) => {
-        const value = s.value(night);
-        if (!isNum(value)) return;
-        const point = svg("circle", { cx: x(i), cy: y(value), r: nights.length > 60 ? 2 : 3, fill: color });
-        point.append(svg("title", null, `${date(night.date)}${night.test ? " (test run)" : ""} — ${s.label}: ${options.format(value)}`));
-        root.append(point);
-      });
+      return chip;
     });
-    xLabels(root, nights, x);
-    const legend = el(
-      "div",
-      { class: "legend" },
-      series.map((s, index) => el("span", null, el("span", { class: "swatch", style: `background: ${PALETTE[index % PALETTE.length]}` }), s.label))
-    );
-    return el("div", { class: "chart-card" }, el("h3", null, title), legend, root, options.note ? el("p", { class: "muted small" }, options.note) : null);
+    return el("div", { class: "chart-card" }, el("h3", null, title), el("div", { class: "legend" }, chips), current, options.note ? el("p", { class: "muted small" }, options.note) : null);
   }
 
   function platformCharts(nights, marks) {
@@ -575,7 +599,7 @@
     }
     const indexOf = (runId) => nights.findIndex((night) => String(night.run_id) === String(runId));
     const marks = { night: indexOf(selection && selection.night), base: indexOf(selection && selection.base) };
-    box.append(...[lineChart(nights, marks), barChart(nights, marks), ...platformCharts(nights, marks)].filter(Boolean));
+    box.append(...[lineChart(nights, marks), barChart(nights, marks), ...platformCharts(nights, marks)]);
   }
 
   // ---------------------------------------------------------------- tables

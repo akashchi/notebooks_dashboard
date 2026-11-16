@@ -103,6 +103,8 @@ tr.row-base td { background: color-mix(in srgb, var(--P) 12%, var(--bg)); }
   #trends { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .charts .wide { grid-column: span 2; }
 }
+.legend-chip { display: inline-flex; align-items: center; gap: 0.35rem; }
+.legend-chip .swatch { margin-right: 0; }
 .chart-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; }
 .chart-card h3 { margin: 0.2rem 0; }
 .chart-card .status-percentages { font-size: 11px; }
