@@ -619,7 +619,7 @@
       const jobId = failure.job_id || (/\/job\/(\d+)/.exec(failureLinks.job || "") || [])[1];
       return commitUrl && jobId ? `${commitUrl}/checks/${jobId}/logs` : null;
     };
-    const rows = items.map((item) => {
+    const rowFor = (item) => {
       const failure = failures[item.failure_id] || {};
       const failureLinks = failure.links || {};
       const since = item.since;
@@ -662,15 +662,47 @@
           ])
         )
       );
-    });
-    box.append(
-      table(
-        ["Notebook", ...CONFIG_HEADERS, "Status", "Since", { text: "Change correlation", attrs: { title: "What changed between the last pass and the first failure. Not a diagnosis: see the error and the failure overview for the likely root cause." } }, "Error", "Links"],
-        rows,
-        { class: "attention" }
-      )
-    );
+    };
+    const headers = ["Notebook", ...CONFIG_HEADERS, "Status", "Since", { text: "Change correlation", attrs: { title: "What changed between the last pass and the first failure. Not a diagnosis: see the error and the failure overview for the likely root cause." } }, "Error", "Links"];
+    const entries = items.map((item) => ({ item, parts: configParts(item.config_id) }));
+    const dimensions = [
+      ["os", "OS"],
+      ["device", "Device"],
+    ];
+    const count = el("span", { class: "count" });
+    const tableBox = el("div");
+    const update = () => {
+      const visible = entries.filter(({ parts }) => dimensions.every(([key]) => !attentionHidden[key].has(parts[key] || "—")));
+      const total = `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`;
+      count.textContent = visible.length === entries.length ? `Total: ${total}` : `Showing ${visible.length} of ${total}`;
+      tableBox.textContent = "";
+      tableBox.append(visible.length ? table(headers, visible.map(({ item }) => rowFor(item)), { class: "attention" }) : el("p", { class: "none" }, "No entries match the selected filters."));
+    };
+    const filters = el("div", { class: "controls" });
+    for (const [key, label] of dimensions) {
+      const values = [...new Set(entries.map(({ parts }) => parts[key] || "—"))].sort();
+      if (values.length < 2 && !attentionHidden[key].size) continue;
+      const group = el("span", { class: "filter-group", role: "group", "aria-label": `Filter by ${label}` }, el("span", { class: "muted small" }, `${label}:`));
+      for (const value of values) {
+        const n = entries.filter(({ parts }) => (parts[key] || "—") === value).length;
+        const chip = el("button", { type: "button", class: "chip", "aria-pressed": String(!attentionHidden[key].has(value)), title: `Show or hide ${value}` }, `${value} (${n})`);
+        chip.addEventListener("click", () => {
+          if (attentionHidden[key].has(value)) attentionHidden[key].delete(value);
+          else attentionHidden[key].add(value);
+          chip.setAttribute("aria-pressed", String(!attentionHidden[key].has(value)));
+          update();
+        });
+        group.append(chip);
+      }
+      filters.append(group);
+    }
+    filters.append(count);
+    box.append(filters, tableBox);
+    update();
   }
+
+  // OS and device values the user switched off in the Needs attention table; kept when another night is selected.
+  const attentionHidden = { os: new Set(), device: new Set() };
 
   function renderChanges(latest, catalog) {
     const box = document.getElementById("changes");

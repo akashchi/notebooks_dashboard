@@ -222,3 +222,4 @@ div.failure details summary { cursor: pointer; color: var(--muted); font-size: 1
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .run-info > * { display: inline; }
 }
+.filter-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-right: 0.6rem; }
