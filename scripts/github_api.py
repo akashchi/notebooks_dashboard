@@ -111,6 +111,21 @@ class GitHubApi:
                 return artifacts
             page += 1
 
+    def search_issues(self, query: str) -> list[dict]:
+        items: list[dict] = []
+        page = 1
+        while True:
+            data = self.get_json("search/issues", {"q": query, "per_page": 100, "page": page})
+            if data.get("incomplete_results") or data.get("total_count", 0) > 1000:
+                raise GitHubApiError(f"Incomplete GitHub issue search: {query}")
+            batch = data.get("items") or []
+            items.extend(batch)
+            if len(items) >= data.get("total_count", 0):
+                return items
+            if not batch:
+                raise GitHubApiError(f"Truncated GitHub issue search: {query}")
+            page += 1
+
     def download_artifact_zip(self, repository: str, artifact_id: int) -> bytes:
         """The API answers with a redirect to blob storage, which must be requested without the Authorization header."""
         url = self._url(f"repos/{repository}/actions/artifacts/{artifact_id}/zip")

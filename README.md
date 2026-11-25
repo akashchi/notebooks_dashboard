@@ -14,6 +14,7 @@ published at **https://akashchi.github.io/notebooks_dashboard/**.
 - **Notebook health:** the failing runs counted by OS, device and Python, then each notebook's status per configuration, with columns grouped by OS → device → Python and filterable by each of them, and a 30-night history strip; searchable and filterable by status. Expanding a notebook shows per-configuration history and failure details (traceback, failing cell, log tail).
 - **Failure overview:** the failing runs grouped by probable root cause (external service problems such as network, credentials or certificates vs notebook, timeout and infrastructure errors), the share that looks external, and how many are new, recurring or failing for 7+ nights.
 - **Needs attention:** every failing notebook × configuration with the night it started failing and the streak length, the last passing night, a diff link between the two commits, what changed since then ("change correlation": notebook changed / OpenVINO changed / packages changed / external or flaky), the error, and links to the job, logs and source. OS and Device filter buttons (all on by default) narrow the list, and a counter shows the total number of entries (or how many of them are shown).
+- **CI Doctor:** open `automated-fix` PRs and CI Doctor issues assigned to `akashchi`, linked to the selected nightly by their explicit source run or matching error signature within the declared notebook/configuration scope. Changes since notebook cards show matching issue/PR links beside the affected failing configurations; links also appear in Needs attention and expanded Notebook health failure details. The last-sync timestamp is shown. These are currently open items, not a reconstruction of their state on an older night.
 - **Stability, timeout risks, recurring error groups** and **infrastructure problems** (jobs that failed before running notebooks). Stability classifies notebooks from their history as always failing, failing for 3+ nights, newly failing, flaky or recently recovered, with a status strip each. It sits in the "Flaky and slow" section.
 - **Coverage and performance:** executed, passed and skipped runs per configuration, skipped runs by reason (GPU / non-GPU), notebooks never executed in the stored history. It follows the Trends section. The Trends section also charts the pass rate by OS, device and Python version; the buttons above each chart show or hide its lines (all are shown by default) and rescale the axis.
 
@@ -28,13 +29,15 @@ openvino_notebooks: treon_nightly.yml ──► artifact "nightly-dashboard-data
 this repo: .github/workflows/update.yml ────────────┘
   1. pytest
   2. scripts/ingest.py   download new official nights → data/runs/<date>_<run_id>.json (compact) + data/catalog.json, committed
-  3. scripts/build.py    cross-night metrics → _site/data/{meta,trend,latest,history}.json + data/nights/<run_id>.json + site/ (static HTML/CSS/JS)
-  4. deploy to GitHub Pages
+  3. scripts/ci_doctor.py refresh open CI Doctor issues/PRs → data/ci_doctor.json, committed with the nightly data
+  4. scripts/build.py    cross-night metrics + CI Doctor links → _site/data/{meta,trend,latest,history}.json + data/nights/<run_id>.json + site/ (static HTML/CSS/JS)
+  5. deploy to GitHub Pages
 ```
 
 - **Official nights only:** scheduled runs (`event: schedule`) of `treon_nightly` on the `latest` branch. They are configured in [dashboard.json](dashboard.json).
 - **Test data:** while no official night has been ingested, or when the workflow is started manually with `use_latest_artifact`, the page shows the most recent artifact of any branch or event, behind a yellow "Test data" banner. Test data is never stored in `data/`.
 - **History:** kept in `data/` indefinitely, because the upstream artifacts expire. The daily commit also keeps the scheduled workflow active, since GitHub disables schedules in public repositories after 60 days without activity.
+- **CI Doctor refresh:** runs on every dashboard update, even without new nightly artifacts. Closed issues/PRs disappear on the next refresh. Items created after the daily 08:00 UTC update appear on the next update; run **Update dashboard** manually to refresh sooner. No upstream nightly workflow changes or browser-side GitHub token are needed. A failed refresh fails the update rather than publishing an empty success-shaped result.
 - **No dependencies:** the scripts use only the Python standard library (pytest only for tests), and the page is plain HTML, CSS and JavaScript with SVG charts. There is no build step and no CDN.
 
 ## Setup
@@ -49,6 +52,7 @@ this repo: .github/workflows/update.yml ────────────┘
 ```bash
 # Requires a GitHub token to download artifacts (anonymous downloads are rejected).
 GH_TOKEN=$(gh auth token) python scripts/ingest.py               # add --use_latest_artifact to fetch test data
+GH_TOKEN=$(gh auth token) python scripts/ci_doctor.py             # refresh open issues/PRs (optional for an offline build)
 python scripts/build.py --out _site
 python -m http.server 8000 --directory _site                      # open http://localhost:8000
 python -m pytest                                                  # tests (pip install pytest)
@@ -67,7 +71,7 @@ python scripts/build.py --data_dir .cache/local --cache_dir .cache/local --out _
 | Path               | Content                                                                        |
 | ------------------ | ------------------------------------------------------------------------------ |
 | `dashboard.json` | Source repository, workflow, artifact, official branch/event, time windows     |
-| `scripts/`       | `github_api.py`, `ingest.py`, `compact.py`, `metrics.py`, `build.py`, `local_history.py` |
+| `scripts/`       | `github_api.py`, `ingest.py`, `ci_doctor.py`, `compact.py`, `metrics.py`, `build.py`, `local_history.py` |
 | `site/`          | The page:`index.html`, `app.js`, `compare.js`, `style.css`, `favicon.svg` |
 | `data/`          | Stored history (committed by the workflow)                                     |
 | `docs/DATA.md`   | Stored and site data formats, metric definitions                               |

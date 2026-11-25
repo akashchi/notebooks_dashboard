@@ -602,6 +602,13 @@
     box.append(...[lineChart(nights, marks), barChart(nights, marks), ...platformCharts(nights, marks)]);
   }
 
+  function doctorLinks(items) {
+    if (!(items || []).length) return links([]);
+    return el("span", { class: "links" }, items.map((item) =>
+      link(item.url, `${item.kind === "pr" ? "PR" : "Issue"} #${item.number}`, { title: item.title })
+    ));
+  }
+
   // ---------------------------------------------------------------- tables
   function renderAttention(latest, catalog) {
     const box = document.getElementById("attention");
@@ -649,6 +656,7 @@
           el("span", { title: errorText(item) || errorText(failure) }, firstLine(errorText(item) || errorText(failure), 160) || "—"),
           failure.log_excerpt ? el("details", { class: "log" }, el("summary", { class: "small" }, "failure log"), el("pre", null, failure.log_excerpt)) : null
         ),
+        el("td", { class: "small" }, doctorLinks(failure.ci_doctor)),
         el(
           "td",
           { class: "nowrap" },
@@ -663,7 +671,7 @@
         )
       );
     };
-    const headers = ["Notebook", ...CONFIG_HEADERS, "Status", "Since", { text: "Change correlation", attrs: { title: "What changed between the last pass and the first failure. Not a diagnosis: see the error and the failure overview for the likely root cause." } }, "Error", "Links"];
+    const headers = ["Notebook", ...CONFIG_HEADERS, "Status", "Since", { text: "Change correlation", attrs: { title: "What changed between the last pass and the first failure. Not a diagnosis: see the error and the failure overview for the likely root cause." } }, "Error", "CI Doctor", "Links"];
     const entries = items.map((item) => ({ item, parts: configParts(item.config_id) }));
     const dimensions = [
       ["os", "OS"],
@@ -713,6 +721,11 @@
     const changes = latest.changes || {};
     const newFailures = changes.new_failures || [];
     const fixed = changes.fixed || [];
+    const doctor = latest.ci_doctor || {};
+    box.append(el("p", { class: "muted small" }, doctor.updated_at
+      ? `CI Doctor links show open issues and PRs as of ${doctor.updated_at}.`
+      : "CI Doctor links have not been synced yet."));
+    for (const warning of doctor.warnings || []) box.append(el("p", { class: "message" }, warning));
     if (!newFailures.length && !fixed.length) {
       box.append(el("p", { class: "none" }, "No changes."));
       return;
@@ -746,17 +759,19 @@
             el(
               "ul",
               null,
-              entries.map(({ item, kind }) =>
-                el(
+              entries.map(({ item, kind }) => {
+                const doctorItems = kind === "fixed" ? [] : (failures[item.failure_id] || {}).ci_doctor || [];
+                return el(
                   "li",
                   null,
                   badge(kind === "fixed" ? "passed" : item.status || "failed"),
                   " ",
                   configLabel(item.config_id),
                   kind === "fixed" ? el("span", { class: "muted small" }, " — fixed") : item.previous_status === null ? el("span", { class: "muted small" }, " — no previous result") : null,
-                  kind === "fixed" ? null : logLink(item)
-                )
-              )
+                  kind === "fixed" ? null : logLink(item),
+                  doctorItems.length ? el("div", { class: "doctor-link" }, el("strong", null, "CI Doctor: "), doctorLinks(doctorItems)) : null
+                );
+              })
             )
           )
         )
@@ -779,6 +794,7 @@
         el("span", { class: "muted small" }, ` ${[failure.category, failure.error_class].filter(Boolean).join(" / ")}${isNum(failure.cell_index) ? ` · cell ${failure.cell_index}` : ""}`)
       ),
       errorText(failure) ? el("pre", null, errorText(failure)) : null,
+      (failure.ci_doctor || []).length ? el("div", { class: "small" }, "CI Doctor: ", doctorLinks(failure.ci_doctor)) : null,
       excerpt("Traceback", failure.traceback_excerpt),
       excerpt("Failing cell", failure.cell_source_excerpt),
       excerpt("Failure log", failure.log_excerpt),

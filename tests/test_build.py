@@ -50,7 +50,7 @@ TREND_KEYS = set(
     "untested failing_notebooks jobs_failed_before_tests wall_clock_s compute_s platforms".split()
 )
 LATEST_KEYS = set(
-    "test run summary previous kpis configs notebooks failures attention changes flaky duration_regressions timeout_risk error_groups mttr_nights infra last_executed skips never_executed".split()
+    "test run summary previous kpis configs notebooks failures attention changes flaky duration_regressions timeout_risk error_groups mttr_nights infra last_executed skips never_executed ci_doctor".split()
 )
 KPI_NAMES = ["notebook_pass_rate", "failing_notebooks", "new_failures", "fixed", "executed", "skipped", "wall_clock_s"]
 NOTEBOOK_KEYS = {"path", "title", "dir", "tags", "links", "last_modified", "status", "worst", "failing", "flaky", "new_failure"}
@@ -209,6 +209,46 @@ def five_nights() -> tuple:
         openvino = "2026.4.1" if night < 3 else "2026.5.0.dev20261007"
         reports.append(fixture_night(1000 + night, day("2026-10-01", night), statuses=statuses, packages={"openvino": openvino}))
     return tuple(reports)
+
+
+def test_build_links_ci_doctor_snapshot_to_latest_and_selected_nights(tmp_path):
+    reports = five_nights()
+    store(tmp_path / "data", reports)
+    failure = compact(reports[-1])["failures"][0]
+    snapshot = {
+        "repository": config()["source"]["repository"],
+        "updated_at": NOW,
+        "items": [{
+            "number": 123,
+            "title": "Fix nightly failure",
+            "url": "https://github.com/openvinotoolkit/openvino_notebooks/pull/123",
+            "kind": "pr",
+            "signature": failure["signature"],
+            "run_id": str(reports[-1]["run"]["id"]),
+            "affected": [{"notebook": failure["notebook"], "configs": [failure["config_id"]]}],
+        }],
+        "warnings": [],
+    }
+    write_json(tmp_path / "data" / "ci_doctor.json", snapshot)
+    files = run_build(tmp_path)
+    check_all(files)
+    assert files["latest"]["ci_doctor"]["updated_at"] == NOW
+    assert files["latest"]["failures"][failure["id"]]["ci_doctor"][0]["number"] == 123
+    assert files["nights"]["1004"]["ci_doctor"]["items"][0]["number"] == 123
+    assert all(night["ci_doctor"]["updated_at"] == NOW for night in files["nights"].values())
+
+
+def test_build_rejects_ci_doctor_snapshot_from_another_repository(tmp_path):
+    write_json(tmp_path / "data" / "ci_doctor.json", {"repository": "other/repo", "items": []})
+    with pytest.raises(ValueError, match="repository does not match"):
+        run_build(tmp_path)
+
+
+def test_latest_still_builds_without_a_trend_window():
+    files = build.compute(config(trend=0), [compact(five_nights()[-1])])
+    assert files["latest"]["run"]["id"] == 1004
+    assert files["latest"]["ci_doctor"]["updated_at"] is None
+    assert files["nights"] == {}
 
 
 def test_build_official_history(tmp_path):

@@ -198,8 +198,9 @@ div.failure details summary { cursor: pointer; color: var(--muted); font-size: 1
 
 /* Lists */
 .changes .changes-summary { margin: 0 0 0.6rem; }
-.changes .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0.75rem; }
+.changes .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 0.75rem; }
 .changes .card { padding: 0.5rem 0.75rem; background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+.changes .doctor-link { width: fit-content; max-width: 100%; margin: 0.25rem 0 0.4rem; padding: 0.3rem 0.55rem; border: 1px solid var(--link); border-radius: 6px; background: var(--bg); overflow-wrap: anywhere; }
 .infra ul { margin: 0.3rem 0; padding-left: 1.2rem; }
 .changes ul { margin: 0.3rem 0 0; padding-left: 0; list-style: none; }
 .changes li { margin: 0.2rem 0; }

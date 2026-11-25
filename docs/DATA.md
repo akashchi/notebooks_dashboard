@@ -60,6 +60,22 @@ Notebook catalog of the newest official night, rewritten on each ingestion. Buil
 Ingestion index: `{"runs": {"<run_id>": {"attempt": 1, "artifact_id": 1, "artifact_created_at": "...", "file": "runs/2026-10-12_123.json", "nightly_date": "2026-10-12"}}}`.
 An artifact is downloaded again only when its id differs from the stored one. The record with the higher `run.attempt` wins, or the newer artifact when the attempts are equal.
 
+### `data/ci_doctor.json`
+
+Snapshot of currently open CI Doctor work, refreshed by `scripts/ci_doctor.py` independently of nightly artifact ingestion:
+
+```json
+{"repository":"openvinotoolkit/openvino_notebooks","updated_at":"2026-11-25T08:00:00Z","items":[{"number":3881,"title":"Fix nightly failure","url":"https://github.com/openvinotoolkit/openvino_notebooks/pull/3881","kind":"pr","signature":"f30731155e82","run_id":"43987461301","affected":[{"notebook":"cosyvoice3-tts/cosyvoice3-tts.ipynb","configs":["cpu-ubuntu-22.04-py3.12"]}]}],"warnings":[]}
+```
+
+Queries are open PRs labelled `automated-fix` and open issues assigned to `akashchi`. Assigned issues must additionally have the `nightly-remediator` or `nightly-failure` label, or the `nightly-issue-remediator` workflow marker, so unrelated assigned issues are excluded. Results are paginated, sorted by descending number and atomically replaced on successful refresh; closed items are removed. A failed/incomplete API search fails the refresh without overwriting the previous snapshot.
+
+Only the primary `Error signature:` and `Nightly run:` fields and rows in `## Affected notebooks` are parsed. Related signatures and the remediator's own workflow URL are not associations. Paths are normalized by removing the `notebooks/` prefix. A record without a source nightly or signature produces an explicit warning. Raw bodies are not stored.
+
+Every generated night document has `ci_doctor: {"repository", "updated_at", "open_total", "items", "warnings"}`. Its items are snapshot entries whose source `run_id` matches the selected night **or** whose signature matches a failure within its affected notebook/configuration scope. Each item adds `failure_ids`, the exact matching failures in that night. A declared scope restricts signature matches; if no scope is declared, the explicit signature is used alone. Without a signature, a failure link requires both the exact source night and an affected notebook/configuration match. Notebook names alone never establish links across nights.
+
+Each entry in the night document's `failures` map also has `ci_doctor`, a list of matching `{"number","title","url","kind"}` links. Nightly source records remain unchanged. The snapshot reflects open state at sync time, including on historical night documents; it is not historical issue-state tracking. With no snapshot, `updated_at` is null and the UI explicitly says links have not been synced.
+
 ## 2. Site data (`_site/data/`)
 
 Every file is JSON. All lists are ordered as described. Nights are ordered oldest → newest.

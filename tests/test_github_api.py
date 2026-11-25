@@ -1,4 +1,5 @@
 import http.client
+import json
 
 import pytest
 
@@ -43,6 +44,25 @@ def test_list_artifacts_paginates():
     artifacts = api(transport).list_artifacts("o/r", "nightly-dashboard-data")
     assert [artifact["id"] for artifact in artifacts] == list(range(101))
     assert "page=2" in transport.calls[1]["url"] and "name=nightly-dashboard-data" in transport.calls[1]["url"]
+
+
+def test_search_issues_paginates():
+    transport = Transport(
+        json_response(json.dumps({"total_count": 101, "items": [{"number": n} for n in range(100)]})),
+        json_response('{"total_count":101,"items":[{"number":100}]}'),
+    )
+    assert len(api(transport).search_issues("repo:o/r is:open")) == 101
+    assert "page=2" in transport.calls[1]["url"]
+
+
+@pytest.mark.parametrize("data", [
+    {"incomplete_results": True},
+    {"total_count": 1001},
+    {"total_count": 1, "items": []},
+])
+def test_search_issues_rejects_partial_results(data):
+    with pytest.raises(GitHubApiError):
+        api(Transport(json_response(json.dumps(data)))).search_issues("repo:o/r")
 
 
 def test_retries_server_errors_and_network_errors():

@@ -57,7 +57,12 @@ jobs:
           if [[ "$USE_LATEST_ARTIFACT" == "true" ]]; then ARGS+=(--use_latest_artifact); fi
           python scripts/ingest.py "${ARGS[@]}"
 
-      - name: Commit new nights
+      - name: Refresh CI Doctor issues and PRs
+        env:
+          GH_TOKEN: ${{ secrets.NIGHTLY_ARTIFACTS_TOKEN || github.token }}
+        run: python scripts/ci_doctor.py
+
+      - name: Commit nightly data and CI Doctor links
         run: |
           git add data
           if git diff --cached --quiet; then

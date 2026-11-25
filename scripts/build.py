@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 import metrics
+from ci_doctor import SNAPSHOT_FILE, match_night
 from compact import ABSENT_CODE, FORMAT_VERSION, STATUS_CODES, expand_results
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -288,6 +289,7 @@ def compute(
     warnings: Optional[list] = None,
     now: Union[None, str, datetime] = None,
     dashboard_repository: Optional[str] = None,
+    ci_doctor: Optional[dict] = None,
 ) -> dict:
     """The four site data documents {"meta", "trend", "latest", "history"} plus "nights" ({run_id: night document},
     written to data/nights/<run_id>.json) (pure: no file access)."""
@@ -295,12 +297,14 @@ def compute(
     repository = (config.get("source") or {}).get("repository")
     history = metrics.History(records, test_run)
     latest = make_latest(history, catalog, repository, windows)
+    nights = {run_id: match_night(document, ci_doctor) for run_id, document in make_nights(history, catalog, repository, windows, latest).items()}
+    latest = nights.get(str((latest["run"] or {}).get("id"))) or match_night(latest, ci_doctor)
     return {
         "meta": make_meta(config, history, test_data if test_run is not None else None, warnings or [], _timestamp(now), dashboard_repository),
         "trend": make_trend(history, windows),
         "latest": latest,
         "history": make_history(history, windows),
-        "nights": make_nights(history, catalog, repository, windows, latest),
+        "nights": nights,
     }
 
 
@@ -350,7 +354,11 @@ def build(config, data_dir, cache_dir, site_dir, out_dir, now=None) -> dict:
     if catalog is None:
         catalog = load_catalog(Path(data_dir) / "catalog.json", warnings)
     dashboard_repository = os.environ.get("GITHUB_REPOSITORY") or config.get("dashboard_repository")
-    documents = compute(config, records, catalog, test_run, test_data, warnings, now, dashboard_repository)
+    doctor_path = Path(data_dir) / SNAPSHOT_FILE
+    ci_doctor = _read_json(doctor_path) if doctor_path.is_file() else None
+    if ci_doctor is not None and ci_doctor.get("repository") != (config.get("source") or {}).get("repository"):
+        raise ValueError(f"{doctor_path}: CI Doctor repository does not match dashboard source")
+    documents = compute(config, records, catalog, test_run, test_data, warnings, now, dashboard_repository, ci_doctor)
     write_site(documents, site_dir, out_dir)
     return documents
 
